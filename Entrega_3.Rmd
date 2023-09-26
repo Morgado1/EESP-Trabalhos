@@ -1,0 +1,596 @@
+---
+title: "Exercício Aplicado 2"
+author: "Rodrigo Morgado"
+date: "`r format(Sys.time(), '%d, %B, %Y')`"
+output: 
+  html_document:
+    highlight: textmate
+    theme: flatly
+    number_sections: true
+    code_folding: show
+    toc: true
+    toc_float: false
+  pdf_document:
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# Introdução
+
+O paper de *Gertler and Karadi (2015)*, para analisar a natureza da transmissão de uma política monetária, vai analisar a resposta conjunta de uma variedade de variáveis econômicas e financeiras a surpresas monetária exógena.
+
+Vale ressaltar que no paper eles utilizam o conceito de surpresa monetária, o qual pode ser distinguido em dois tipos: surpresa na taxa imediata e surpresa na taxa futura.
+Naquela, os autores argumentam que se configura como uma surpresa na trajetória da taxa de juros futura.
+
+Essas surpresas monetárias, por sua vez, serão utilizadas pelo paper como instrumentos para uma "policy variable", a qual corresponde a taxa de juros do título do governo de 1 e 2 anos.
+A partir disso, objetivam analisar não só a variação da taxa de juros do momento, mas também capturar a variação da expectativa dos agentes sobre as taxas de juros de curtíssimo prazo.
+Essa instrumentalização das surpresas, por sua ve, servem para capturar o efeito previsto na estrutura a termo da taxa de juros, que ele traduz via "policy variable".
+Ao incorporar essas "policy variables", ele está buscando não só qual o choque na expectativa do mercado da taxa de juros overnight (Federal Funds Rate), mas também na taxa de juros de 1 e 2 anos.
+Existem outros fatores que influenciam as "policy variables", por isso ele utiliza um instrumento, via surpresa monetária, resolvendo o problema da endogeneidade.
+
+Outrossim, vale destacar que as surpresas monetárias incluem choques para "forward guidance", algo semelhante às atas do COPOM, no sentido de que serve para inlfuenciar as expectativas dos agentes sobre a trajetória das taxas de curto prazo.
+
+A abordagem consiste na combinação do VAR, choque monetário tradicional, com o "high frequency identification" (HFI).
+
+Hipotese de identificação do HFI: agentes tomam decisões antes de algo ocorrer (expectativas).
+Se os agentes tem uma informação parecida com o que o FRED tem, eles deveriam antecipar as respostas típicas que o FRED faria.
+Quando pegamos a surpresa, pegamos só o que não faz parte da regra, um estímulo extra.
+Hipoteses: Pessoas entendem bem como funciona a tomada de decisão; e a regra é clara, em alguma medida.
+Então surpresa pode ser uma proxy para o choque monetário.
+Dessa forma, HFI é utilizado para que os resultados sejam menos sucetiveis para endogeneidade.
+
+## Loading Packages
+
+```{r, warning=FALSE, message=FALSE}
+#Limpar o wokrspace
+rm(list = ls())
+graphics.off()
+knitr::opts_chunk$set(echo = TRUE)
+
+remotes::install_github("angusmoore/varexternalinstrument")
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+load.lib <- c("dynlm","vars","readxl","tidyverse","stargazer","lubridate","devtools",
+              "gridExtra","varexternalinstrument")
+### Instaling and loading packages
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib,dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+```
+
+# Data
+
+Importando a base de dados, via excel fornecido.
+
+## Variáveis Endógenas
+
+```{r, fig.align='center'}
+#Loading data:
+Data <- read_excel("C:/Users/Rodrigo/OneDrive - Fundacao Getulio Vargas - FGV/EESP/Econometria Aplicada/Base de Dados/data_ea3.xlsx", sheet = "VAR_data")
+
+# Criando coluna de datas:
+Data$Date <- with(Data, ymd(paste(year, month, 1, sep = '-')))
+
+#Reordenando:
+Data %>%
+  dplyr::select(!c(year,month)) %>% #Estamos retirando as coluas "year" e "month"
+  pivot_longer(!Date) %>%
+  ggplot(aes(x = Date, y = value))+
+  geom_line()+
+  facet_wrap( ~ name, ncol = 3, scales = 'free')+
+  theme_bw()+
+  labs(x = '', y = '')
+```
+
+## Variáveis Exógenas: Instrumentos
+
+Importando e plotando os instrumentos:
+
+```{r fig.align='center', warning=FALSE}
+#importando os instrumentos:
+Instruments <- read_excel("C:/Users/Rodrigo/OneDrive - Fundacao Getulio Vargas - FGV/EESP/Econometria Aplicada/Base de Dados/data_ea3.xlsx", sheet = "Instruments")
+
+Instruments$Date <- with(Instruments, ymd(paste(year, month, 1, sep = '-')))
+
+Instruments %>%
+  dplyr::select(!c(year, month)) %>% 
+  pivot_longer(!Date) %>% 
+  ggplot(aes(x = Date, y = value))+
+  geom_line()+
+  facet_wrap(~ name, ncol = 3, scales = 'free')+
+  theme_bw()+
+  labs(x = '', y = '')
+```
+
+A partir dos gráficos é possível observar as seguintes variáveis:
+
+-   ed2, euro dollar para 2 meses;
+
+-   ed3, euro dollar para 3 meses;
+
+-   ed4, euro dollar para 1 ano;
+
+-   mp1_tc = ff1, contrato futuro de 1 mês;
+
+-   ff4, contrato futuro de 4 meses
+
+# VAR
+
+Uma vez que nossos dados são mensais, serão utilizados 12 lags de defasagem, assim como no paper.
+
+```{r}
+#Numero de lags: 
+p <- 12
+
+#selecionando variáveis do VAR:
+var_data <- Data[,c("logip",   #logaritmo da produção industrial;
+                    "logcpi",  #logaritmo CPI;
+                    "gs1",     #gs1 = taxa de juros cobrada no título do governo de 1 ano
+                    "ebp")]    #epb = excess bond premium, sendo uma medida do spreadm, na qual compara os títulos do governos e os corporate securities, e tem o prêmio depois de limpar o risco de defoult
+
+#Estimando VAR irrestrito:
+var12 <- VAR(var_data, p = 12, type = 'const')
+  #A constante é colocada porque não tiramos a média das variáveis.
+
+#Plotando ACF e PACF dos resíduos de gs1:
+par(mar = c(4, 4, .1, .1))
+acf(var12$varresult$gs1$residuals)
+  #Fica bem significativo no 12, sendo caracteristico de componente sazonal.
+pacf(var12$varresult$gs1$residuals)
+#Fora isso, é possível ver que para os demais períodos, contralamos a série.
+
+```
+
+ACF e PACF serve para fazermos um disgnostico dos erros do modelo da variável de política monetaria.
+Estamos, portanto, analisando se a equação do var irrestrito para gs1, policy indicator, está bem espeficicada.
+A partir dos gráficos acima é possível inferir que o modelo está bem espeficidada, pois a maioria dos lags está dentro do intervalo de confiança (IC).
+É possível notar que há uma certa significância, fora do IC, no 12 lag, podendo ser um indicativo de sazonalidade.
+
+## 1s stage regression
+
+Aqui estamos realizando um procedimento muito semelhante ao 2SLS.
+Estamos guardando os erros de previsão, inovações, do VAR reduzido da nossa policy indicatior (juros do título de 1 ano do governo = gs1), e regredindo ele pelos instrumentos (surpresas monetárias).
+Estamos pegando a parcela da variação da policy indicator que são explicadas pelas surpresas monetárias.
+
+Diferentemente do que será feito na restrição de curto prazo, Cholesky, o choque estrutural consiste de uma decomposição do choque em relação às variáveis de surpresa monetária.
+
+```{r, warning=FALSE}
+monshock <- var12$varresult$gs1$residuals
+
+#Regressão Primeiro Estágio:
+  #Tirando da linha 1 a linha p = 12, para que tenhamos compatibilidade entre o número de linhas do instrumento e o numero de linhas das variáveis.
+  #Não temos as primeiras 12 observações, porque precisamos prevê-las para formar o resíduo.
+d_inst <- Instruments[-(1:p),]
+
+
+#Qual a relação da surpresa monetária (choques nos instrumentos) com a policy variable, taxa de juros do título do governo de 1 ano. 
+  #Colocamos 0 para indicar que não vamos acrescentar uma constante.
+reg1 <- lm(monshock ~ 0 + mp1_tc, data = d_inst) #mp1_tc: surpresa no futuro de 1 mês do fed funds 
+
+reg2 <- lm(monshock ~ 0 + ff4_tc, data = d_inst) #FF4_tc: surpresa no futuro de 3 meses do fed funds
+
+reg3 <- lm(monshock ~ 0 + ed4_tc, data = d_inst) #ED$: surpresa no futuro de 1 ano do s depósitos de eurodollar de três meses
+
+reg4 <- lm(monshock ~ 0 + ff4_tc + ed4_tc, data = d_inst)
+
+reg5 <- lm(monshock ~ 0 + mp1_tc + ff4_tc + ed2_tc + ed3_tc + ed4_tc, data = d_inst)
+
+stargazer(reg1, reg2, reg3, reg4, reg5,
+          type = 'text',
+          header = F,
+          single.row = T,
+          no.space = T,
+          column.sep.width = '3pt',
+          font.size = 'small')
+```
+
+Precisamos de variáveis independentes iniciais, dado que estamos utilizando 12 lags.
+Dessa forma, nossa primeira observação será a partir do 13 período, ou seja, "perdemos" 12 observações para que elas sejam utilizadas como variáveis independentes.
+
+A primeira regressão objetiva analisar se o instrumento é relevante, isto é, se tem algum grau de correlação com os choques da policy variable.
+
+### Analisando a tabela:
+
+Utilizando o método de identificação de intrumentos fraco de *Stock et al. (2002)*, assim como no paper, é possível afirmarmos que o instrumento com maior estatística F foi a fed funds rate de 1 mês ("mp1_tc").
+Logo, por ter a maior relevância, ele sereria o escolhido como instrumento.
+
+Vale ressaltar que, o resultado obtido diferencia-se do paper, no qual foi encontrado que o instrumento com maior estatística F foi a fed funds rate de 3 meses ("ff4_tc").
+
+Dessa forma, para mantermos a análise do paper, será utilizado o FF4 como instrumento relevante, mesmo que em nossa análise seria o FF1.
+
+## Teste de Robustez:
+
+```{r}
+#Teste F não robusto:
+  #Guardamos o resultado da estatística F de cada regressão
+    #definindo da seguinte forma: [2, 'F'], salva apenas a estatística F
+f_store <- c(summary(reg1)$fstatistic[1],
+             summary(reg2)$fstatistic[1],
+             summary(reg3)$fstatistic[1],
+             summary(reg4)$fstatistic[1],
+             summary(reg5)$fstatistic[1]) %>% round(2)
+
+names(f_store) <- c('reg1','reg2','reg3','reg4','reg5')
+
+#Teste F robusto a erros heteroscedásticos:
+f_hc_store <- c(waldtest(reg1, "mp1_tc", vcov = vcovHC)[2, "F"],
+                waldtest(reg2, "ff4_tc", vcov = vcovHC)[2, "F"],
+                waldtest(reg3, "ed4_tc", vcov = vcovHC)[2, "F"],
+                waldtest(reg4, c("ff4_tc", "ed4_tc"), vcov = vcovHC)[2, "F"],
+                waldtest(reg5, c("mp1_tc", "ff4_tc", "ed2_tc", "ed3_tc", "ed4_tc"), vcov = vcovHC)[2, "F"]) %>% round(2)
+
+names(f_hc_store) <- c('reg1','reg2','reg3','reg4','reg5')
+
+#Teste F robusto a erros heteroscedásticos e autocorrelacionados:
+f_hac_store <-  c(waldtest(reg1, "mp1_tc", vcov = vcovHAC)[2, "F"],
+                  waldtest(reg2, "ff4_tc", vcov = vcovHAC)[2, "F"],
+                  waldtest(reg3, "ed4_tc", vcov = vcovHAC)[2, "F"],
+                  waldtest(reg4, c("ff4_tc", "ed4_tc"), vcov = vcovHAC)[2, "F"],
+                  waldtest(reg5, c("mp1_tc", "ff4_tc", "ed2_tc", "ed3_tc", "ed4_tc"), vcov = vcovHAC)[2, "F"]) %>% round(2)
+
+names(f_hac_store) <- c('reg1','reg2','reg3','reg4','reg5')
+
+#Comparação das estatísticas F por teste
+print(rbind(f_store,f_hc_store,f_hac_store))
+
+```
+
+Assim como anteriormente, pela estatística F escolheríamos FF1 como instrumento mais relevante/robusto, diferentemente do paper, no qual FF4 é mais robusto.
+A fim de mantermos o padrão do paper, será utilizado FF4 como instrumento!
+
+## Restrição de Curto Prazo (Cholesky)
+
+Ordenamos as quatro variáveis em que uma têm efeito sobre outra na seguinte ordem, para conseguir fazer o VAR estrutural pela matriz diagonal inferior: 
+* Logarítmo da produção industrial (logip)
+* Logarítimo do índice de preço do consumidor (logcpi)
+* Taxa de juros do título de 1 ano do governo como "policy indicator" (gs1)
+* Prêmio de excesso de um título (ebp)
+
+Sob a restrição de Cholesky, eles consideraram que a taxa de 1 ano é colocada em penúltimo e o prêmio de excesso de um título em último.
+Isso porque, dada as hipóteses de identificação, o ajuste da taxa de juros de 1 ano do BC pode ter um impacto imediato no prêmio de excesso de um título.
+Isto é, o choque monetário se traduz em um impacto imediato em como o mercado coloca o prêmio dos títulos privados.
+Porém, por hipótese, toda informação da inovação pro prêmio de excesso dos títulos  que já é relevante para a decisão do BC, está contida nas inovações da produção industrial e do CPI.
+Logo, BC observa a produção industrial e o CPI e obtêm informações que afetam o prêmio de excesso dos títulos. Com isso, essas informações que afetarão o prêmio e são necessárias para o BC, já estão contidas nas duas variáveis observadas. A partir disso, é possível afirmar que, o BC não reage ao que o prêmio de excesso dos títulos estão demonstrando.
+
+
+O BC, por sua vez, responde a notícias sobre o produto e preços, dentro do período, mas só pode afetar tais variáveis com uma defasagem.
+
+Quando realizamos esse ordenamento: 
+-   A surpresa de política monetária faz com que a taxa de 1 ano suba, como esperado.
+-   Tanto a produção industrial quanto o CPI apresentam puzzles, uma vez que com o choque monetário, aumento do juros, estamos observando uma expansão da produção industrial e do nível de preços, sendo contrário ao que a teoria econômica prevê.
+-   Outrossim, estamos observando uma queda no spread após um choque monetário.
+
+Logo, o Cholesky apresenta contradições com a teoria econômica tanto com os problemas dos puzzles nas duas variáveis, CPI e produção industrial, quanto da queda no spread.
+
+
+```{r warning=FALSE, fig.align='center'}
+
+var <- VAR(var_data, ic = "SC", lag.max = 10)
+
+#Identificação Cholesky
+A0 <- matrix(NA,4,4)
+A0[1, 2:4] <- 0
+A0[2, 3:4] <- 0
+A0[3, 4] <- 0
+
+#Estimando SVAR com Cholesky:
+svar_chol <- SVAR(x = var12, Amat = A0, Bmat = NULL)
+svar_chol
+
+#Plotando IRFs:
+source_url("https://raw.githubusercontent.com/anguyen1210/var-tools/master/R/extract_varirf.R") #Permite usar função 'extract_varirf'
+irf_chol <- extract_varirf(irf(svar_chol, impulse = "gs1", n.ahead = 40, ortho = TRUE, boot = TRUE))
+
+gs1.shock.on.gs1 <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_gs1, ymin=lower_gs1_gs1, ymax=upper_gs1_gs1)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta gs1")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.logip <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_logip, ymin=lower_gs1_logip, ymax=upper_gs1_logip)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta produto industrial")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.logcpi <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_logcpi, ymin=lower_gs1_logcpi, ymax=upper_gs1_logcpi)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta CPI")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.ebp <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_ebp, ymin=lower_gs1_ebp, ymax=upper_gs1_ebp)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta prêmio dos títulos privados")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+grid.arrange(gs1.shock.on.gs1, gs1.shock.on.logip, gs1.shock.on.logcpi, gs1.shock.on.ebp)
+```
+
+## Instrumento Externo
+
+A escolha de FF4 como instrumento se baseia na forte performance dessa variável como um instrumento externo na análise do VAR, como nas ilustrações de *GK (2015)*.
+
+Vale ressaltar que será escolhido FF4 como isntrumento externo e não o FF1, para mantermos o mesmo padrão do paper.
+
+```{r}
+#identificação via instrumento externo
+shock_hfi <- externalinstrument(var12, Instruments$ff4_tc, "gs1") #
+
+#Resultado do código acima contêm a resposta instantânea de cada variável no VAR dado um choque de gs1
+#Estamos focando nas inovações do gs1, previstas pelo isntrumento.
+#No paper isso seria análogo a identificar a s que multiplica a \varepsilon^{p}_{t}
+
+shock_hfi
+
+```
+
+Observe que "shock_hfi" serve para recuperar o s, isto é, uma coluna do S, matriz var cov que fala como os choques do modelo reduzido se traduzem em choques do modelo estrutural.
+
+O s, portanto, nos diz como o choque de política monetária influencia cada uma das quatro variáveis do VAR.
+
+Note que "shock_hfi" nos diz como as variáveis do VAR reagem a um choque monetário.
+
+```{r fig.align='center'}
+#Queremos plotar a IRF
+ma_representation <- Phi(var12, 50) 
+  #Ele está pegando o VAR na forma reduzida e fazendo a decomposição VMA
+  #São 50 matrizes, na qual cada uma representa uma defasagem.
+    #Diz respeito a resposta das variáveis aos choques em um determinado lag.
+    #As linhas representam a variável que está recebendo o choque.
+    #A coluna representa a variável que está dando o impulso.
+
+#Por exemplo: 
+  #Matriz 5, elemento 3,2 -> qual o impacto com 4 lags que a variável 3 sofre quando temos um choque da variável 2?
+
+irf_proxy <- apply(ma_representation,3, function(x) x %*% shock_hfi)
+#ma_representation: estamos definindo a dimensão na qual nosso array será aplicado, no caso 3.
+#3: indica que queremos aplicar a função ao longo da terceira dimensão da matriz ma_representation, isto é, estamos percorrendo as diferentes "camadas" (matriz bidimensional) da matriz
+#function(x) x %>% shock_hfi: estamos definindo a função que será atribuida. Para cada camada da matriz ma_representation, essa função multiplica a camda (matriz) x pela matriz shock_hfi usando a operação de multiplicação de matrizes %*%. Isso está calculando a IRF para cada camada (lag) da representação MA.
+#Logo, esotu obtendo os coeficientes estruturais, corresponde aos \epsilons do paper, que são exatamente a IRF.
+
+#Convertendo em df e transpomos:
+irf_proxy <- as.data.frame(t(irf_proxy))
+
+#Dando os mesmos nomes dos choques nas colunas:
+colnames(irf_proxy) <- names(shock_hfi)
+
+#Acrescentamos a coluna horizo, o qual contêm o valores de 0 a 50, representando os diferentes horizontes de tempo para os quais as IRFs foram calculadas. 
+irfs <- mutate(irf_proxy, horizon = 0:50)
+
+irfs1 <- gather(irfs, key = variable, value = response, -horizon)
+
+ggplot(irfs1, aes(x = horizon, y = response, color = variable))+
+  geom_line(size = 1.5)+
+  geom_hline(yintercept = 0)+
+  facet_wrap( ~ variable, scales = 'free')+
+  theme_bw()
+
+```
+
+As IRFs obtidas assemelham-se as do paper.
+É possível observar que a variável de produção industrial ainda apresenta o puzzle, na qual aumenta após o choque monetário.
+Já o CPI, não há mais o puzzle, dado que ele reduz após o choque monetário.
+A taxa de juros de 1 ano, ebp, está positivo após o choque, estando de acordo com a teoria econômica.
+
+A grande conclusão do paper é que foi obtido um Excess bond premium (prêmio dos títulos privados) positivo após o choque monetário.
+Outrossim, não há mais a presença de 'price puzzle'.
+Assim como no paper, foi constatado tais conlcusões.
+
+# Adicionando as variáveis spread de mortgage e spread de papéis comerciais
+
+Ordenamos as variáveis em que uma têm efeito sobre outra na seguinte ordem, para conseguir fazer o VAR estrutural pela matriz diagonal inferior: 
+* Logarítmo da produção industrial (logip)
+* Logarítimo do índice de preço do consumidor (logcpi)
+* Taxa de juros do título de 1 ano do governo como "policy indicator" (gs1)
+* Prêmio de excesso de um título (ebp)
+* Spread de mortgage 
+* Spread de papéis comerciais
+
+A ordenação das variáveis é feita baseando-se no que foi realizado no paper, correspondendo a extensão do modelo anterior.
+As três variáveis de crédito refletem os componentes do custo de empréstimo para três mercados financeiros significantes.
+O prêmio pelo excesso de título é importante para capturarmos o custo de empréstimos de longo prazo no setor empresarial não agrícola.
+O spread de mortgage é utilizado para capturar custo de financiamento de imóvel.
+Por fim, o spread de papéis comerciais é relevante para o custo de crédito empresarial de curto prazo, assim como o custo de financiamento de bens de consumo duráveis.
+
+## Restrição de Curto Prazo (Cholesky)
+
+```{r warning=FALSE, fig.align='center'}
+var_data2 <- Data[,c("logip",   
+                    "logcpi",
+                    "gs1",      
+                    "ebp",
+                    "mortg_spread_m", 
+                    "cp3m_spread_m")]  
+
+var12.2 = VAR(var_data2, p = 12, type = "const")
+
+var2 <- VAR(var_data2, ic = "SC", lag.max = 10)
+
+#Identificação Cholesky
+A0 <- matrix(NA,6,6)
+A0[1, 2:6] <- 0
+A0[2, 3:6] <- 0
+A0[3, 4:6] <- 0
+A0[4, 5:6] <- 0
+A0[5, 6] <- 0
+
+#Estimando SVAR com Cholesky:
+svar_chol <- SVAR(x = var12.2, Amat = A0, Bmat = NULL)
+svar_chol
+
+#Plotando IRFs:
+irf_chol <- extract_varirf(irf(svar_chol, impulse = "gs1", n.ahead = 40, ortho = TRUE, boot = TRUE))
+
+gs1.shock.on.gs1 <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_gs1, ymin=lower_gs1_gs1, ymax=upper_gs1_gs1)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta gs1")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.logip <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_logip, ymin=lower_gs1_logip, ymax=upper_gs1_logip)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta produto industrial")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.logcpi <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_logcpi, ymin=lower_gs1_logcpi, ymax=upper_gs1_logcpi)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta CPI")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.ebp <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_ebp, ymin=lower_gs1_ebp, ymax=upper_gs1_ebp)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta prêmio dos títulos privados")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11)) 
+
+gs1.shock.on.cp3m_spread_m <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_cp3m_spread_m, ymin=lower_gs1_cp3m_spread_m, ymax=upper_gs1_cp3m_spread_m)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta cp3m_spread_m")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11))
+
+gs1.shock.on.mortg_spread_m <- irf_chol %>% 
+  ggplot(aes(x=period, y=irf_gs1_mortg_spread_m, ymin=lower_gs1_mortg_spread_m, ymax=upper_gs1_mortg_spread_m)) +
+  geom_hline(yintercept = 0, color='red') +
+  geom_ribbon(fill='grey', alpha=.4, color='grey50',linetype='dashed') +
+  geom_line(size = 1) +
+  theme_light()+
+  ggtitle("Choque Monetário - Resposta mortg_spread_m")+
+  xlab("")+
+  ylab("")+
+  theme(plot.title = element_text(size = 11, hjust = .5),
+        axis.title.y = element_text(size = 11))
+
+grid.arrange(gs1.shock.on.gs1, gs1.shock.on.logip, gs1.shock.on.logcpi, gs1.shock.on.ebp, gs1.shock.on.mortg_spread_m, gs1.shock.on.cp3m_spread_m)
+```
+
+Com a inclusão das novas variáveis, assim como anteriormente, ainda persiste o "price puzzle" sobre a variável CPI e produção industrial; 
+Outrossim, a surpresa de política monetária faz com que a taxa de 1 ano suba, como esperado.
+Porém, estamos observando um aumento no spread após um choque monetário.
+
+## Instrumento Externo
+
+```{r}
+monshock.2 <- var12.2$varresult$gs1$residuals
+
+#Regressão Primeiro Estágio:
+  #Tirando da linha 1 a linha p = 12, para que tenhamos compatibilidade entre o número de linhas do instrumento e o numero de linhas das variáveis.
+  #Não temos as primeiras 12 observações, porque precisamos prevê-las para formar o resíduo.
+d_inst <- Instruments[-(1:p),]
+
+
+#Qual a relação da surpresa monetária (choques nos instrumentos) com a policy variable, taxa de juros do título do governo de 1 ano. 
+  #Colocamos 0 para indicar que não vamos acrescentar uma constante.
+reg1.2 <- lm(monshock.2 ~ 0 + mp1_tc, data = d_inst) #mp1_tc: surpresa no futuro de 1 mês do fed funds 
+
+reg2.2 <- lm(monshock.2 ~ 0 + ff4_tc, data = d_inst) #FF4_tc: surpresa no futuro de 3 meses do fed funds
+
+reg3.2 <- lm(monshock.2 ~ 0 + ed4_tc, data = d_inst) #ED$: surpresa no futuro de 1 ano do s depósitos de eurodollar de três meses
+
+reg4.2 <- lm(monshock.2 ~ 0 + ff4_tc + ed4_tc, data = d_inst)
+
+reg5.2 <- lm(monshock.2 ~ 0 + mp1_tc + ff4_tc + ed2_tc + ed3_tc + ed4_tc, data = d_inst)
+
+stargazer(reg1.2, reg2.2, reg3.2, reg4.2, reg5.2,
+          type = 'text',
+          header = F,
+          single.row = T,
+          no.space = T,
+          column.sep.width = '3pt',
+          font.size = 'small')
+``` 
+Assim como no anteriormente, analisando-se a estatística F, escolheríamos FF1 como isntrumento relevante. Porém, a fim de mantermos os resultados obtidos por *Gertler and Karadi (2015)*, será utilizado FF4 como instrumento relevante.
+
+Utilizando o isntrumento externo obtemos:
+```{r warning=FALSE, fig.align='center'}
+
+shock_hfi2 = externalinstrument(var12.2, Instruments$ff4_tc, "gs1")
+
+ma_representation.2 <- Phi(var12.2, 50)
+
+irf_proxy.2 <- apply(ma_representation.2,3, function(x) x %*% shock_hfi2)
+
+#Convertendo em df e transpomos:
+irf_proxy.2 <- as.data.frame(t(irf_proxy.2))
+
+#Dando os mesmos nomes dos choques nas colunas:
+colnames(irf_proxy.2) <- names(shock_hfi2)
+
+#Acrescentamos a coluna horizo, o qual contêm o valores de 0 a 50, representando os diferentes horizontes de tempo para os quais as IRFs foram calculadas. 
+irfs.2 <- mutate(irf_proxy.2, horizon = 0:50)
+
+irfs1.2 <- gather(irfs.2, key = variable, value = response, -horizon)
+
+ggplot(irfs1.2, aes(x = horizon, y = response, color = variable))+
+  geom_line(size = 1.5)+
+  geom_hline(yintercept = 0)+
+  facet_wrap( ~ variable, scales = 'free')+
+  theme_bw()
+
+```
+
+Como é possível ver, a taxa de um ano tem efeito positivo sobre o spread de mortgage e sobre o spread comercial.
+A inclusão dessas variáveis no modelo não altera o sinal do efeito das outras variáveis, mas sim sua intensidade. É possível notar que não há mais o 'price puzzle' sobre a variável CPI, porém é possível observar que a variável de produção industrial ainda apresenta o puzzle, na qual aumenta após o choque monetário.
+Ademais, a taxa de juros de 1 ano, ebp, está positivo após o choque, estando de acordo com a teoria econômica.

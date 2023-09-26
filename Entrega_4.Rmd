@@ -1,0 +1,383 @@
+---
+title: "Exercício Aplicado 4"
+author: "Rodrigo Morgado"
+date: "`r format(Sys.time(), '%d, %B, %Y')`"
+output: 
+  bookdown::html_document2:
+    theme: default
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: hide
+    self_contained: yes
+    mode: selfcontained
+  toc-title: TABLE OF CONTENTS
+  pdf_document: default
+---
+
+## Loading Packages
+
+```{r, warning=FALSE, message=FALSE}
+#Limpar o wokrspace
+rm(list = ls())
+graphics.off()
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+load.lib <- c("data.table","tidyverse","fixest","ggplot2")
+### Instaling and loading packages
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib,dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+
+setDTthreads(100) # data.table uses all cpu cores
+setFixest_nthreads(4) # fixest uses all cpu cores
+```
+
+## Loading Data
+
+```{r}
+# Importação dos dados
+load("C:/Users/Rodrigo/OneDrive - Fundacao Getulio Vargas - FGV/EESP/Econometria Aplicada/Base de Dados/base_EA4.RData")
+df = rename(df_5_sp)
+df <- df %>% select(CODESC, TP_SEXO, DT_NASCIMENTO, TOTAL_PONTO_MAT,
+                    porc_ACERT_MAT, profic_mat)
+```
+
+```{r}
+summary(df)
+```
+
+# Questão 1
+
+**Considere dois possíveis desenhos para o experimento: uma aleatorização no nível do aluno, outra no nível da escola. Assuma que a restrição orçamentária da Secretaria para o experimento permite qualquer divisão entre escolas tratadas e controle, e que ela irá escolher a proporção de tratados de forma a maximizar o poder do experimento. Para cada uma dessas formas de aleatorização, calcule qual seria o MDE (Minimum Detectable Effect) do programa de tutoria na nota de matemática e na porcentagem de acerto dos estudantes em matemática, considerando diferentes níveis de poder.**
+
+## Aleatorização a nível de alunos
+
+Será realizada uma aleatorização do experimento no nível de alunos, a fim de entender quais são os dados que farão parte do tratamento e quais farão parte do controle.
+Para isso, primeiro considerados a seguinte regressão:
+
+$$ Y_i = \alpha + \beta T_i + \varepsilon_i $$
+
+Nesse caso, $\beta$ mede o efeito médio de tratamento (ATE) quando todos os indivíduos colocados no tratamento de fato são tratados e, por isso, calculamos essa regressão para diversos níveis de $\beta$, estabelecidos pelo intervalo de 0 a 0.4, com diferenças de 0.05.
+
+Para calcularmos o poder do teste, basta que computemos a proporção de rejeições da hipótese nula $H_0$: não há efeito do tratamento, a um nível de significância de 5% para cada efeito que observamos.
+
+Por fim, é colocada em uma tabela as diferentes proporções de rejeição dos testes de hipótese para diferentes níveis de $\beta$.
+
+O que queremos: Calcular o MDE, efeito mínimo da minha intervenção dado o nível de significância e o poder.
+Para qualquer efeito que estamos determinando, qual o poder do teste?
+
+Primeiramente será necessário fixar um efeito.
+Assuma que seja 0.25 A partir disso, vamos calcular o outcome:
+
+$$ y = TOTAL\_PONTO\_MAT(1+efeito) $$
+
+Faremos isso para um alocação T.
+Dessa forma, será necessário repetir tal exercício N vezes (Adote N = 1000).
+Vamos aleatorizar N\*efeito de tratamento.
+
+Por fim, assuma que o nível de significância, $\alpha$, seja de 5%.
+
+```{r}
+set.seed(3)
+
+# Os efeitos de vão de 0 a 0,4, de 0,05 em 0,05.
+eff_grid <- seq(0, 0.4, by = 0.05) 
+
+# Queremos um nível de significância de 5%
+alpha <- 0.05
+
+#Repetiremos o procedimento de simulação 1000 vezes
+reps <- 100 
+
+df2 <- copy(df)
+
+mde <- lapply(eff_grid, function(x){
+# Fazemos o assignment do tratamento para os alunos e impomos o efeito sobre os tratados.
+  sim <- lapply(1:reps, function(i){
+    df2[, treat := rbinom(.N, 1, prob = 0.5)] 
+    df2[, y := TOTAL_PONTO_MAT + x*treat] 
+    
+    # NOsso modelo
+    model <- feols(y~treat+csw0(TP_SEXO), data = df2, 
+               se = "hetero", 
+               lean = TRUE)
+    
+    # Armazenamos as rejeições da nula para os modelos obtidos 
+    tab <- tibble("rep" = i, 
+                  "reject" = sapply(model, function(x) pvalue(x)["treat"] < alpha),
+                  "model" = c("Poder_Modelo_1", "Poder_Modelo_2"))
+  })
+  sim <- setDT(do.call(bind_rows, sim))
+  
+  # Calculamos qual a fração de rejeições da nula do total de repetições em cada um dos modelos
+  power_table <- tibble("MDE" = x,
+                        "Model" = unique(sim$model),
+                        "power" = sapply(unique(sim$model), function(x) nrow(sim[model == x][reject == "TRUE"])/reps))
+  power_table <- power_table %>% pivot_wider(names_from = "Model", values_from = "power")
+  power_table
+})
+
+mde <- do.call(bind_rows, mde)
+mde
+```
+
+Nesse sentido, essa tabela mostra a proporção de hipóteses nulas rejeitadas, de modo que testa-se que o valor estimado de ATE seja igual ao valor do ATE estabelecido na primeira coluna.
+A fim de facilitar a visualização, segue o gráfico com o nível estabelecido e o poder: calculado:
+
+```{r, fig.height=6, fig.width=10}
+mde <- mde %>% pivot_longer(cols = starts_with("Poder_Modelo"), names_to = "Modelo", values_to = "Poder")
+ggplot(data = mde, aes(x = MDE, y = Poder, group = Modelo)) +
+  geom_line(aes(color = Modelo)) +
+  geom_point(aes(color = Modelo, shape = Modelo)) +
+  theme_bw() +
+  scale_y_continuous(n.breaks = 10) +
+  scale_color_brewer(palette = "Dark2", direction = -1) +
+  labs(title = "Função do poder",
+       subtitle = "Nível de significância fixado a 5%",
+       x = "MDE")
+```
+
+A partir da tabela e do gráfico, é possível notar que, ao acrescentarmos modelos, o poder do teste aumenta, uma vez que os controles reduzem a variância do termo de erro, dado que o modelo está melhor especificado.
+Entretanto, como o gênero explica tanto sobre o efeito, então os valores de poder são pouco alterados de um modelo para outro.
+
+## Aleatorização a nível das escolas
+
+Repetimos o calculo do minimum detectable effect na nota de matemática para alguns níveis de poder, aleatorizando a nível de escola.
+Os procedimentos são os mesmos adotados anteriormente.
+
+```{r, warning=FALSE}
+eff_grid <- seq(0, 0.4, by = 0.05) 
+alpha <- 0.05 
+reps <- 100 
+
+df2 <- copy(df)
+
+mde_escola <- lapply(eff_grid, function(x){
+  
+  sim <- lapply(1:reps, function(i){
+    
+    # Para fazermos o assignment por escola, criamos uma nova base só de escolas e a adicionamos à nossa base de dados.
+    
+    escolas <- tibble('CODESC' = unique(df2$CODESC))
+    setDT(escolas)
+    escolas[, treat := rbinom(.N, 1, prob = 0.5)]
+    df2 <- left_join(df2, escolas, by = 'CODESC')
+
+    df2[, y := TOTAL_PONTO_MAT + x*treat] 
+    
+    model <- feols(y~treat+csw0(TP_SEXO), data = df2, 
+               se = "hetero", 
+               lean = TRUE)
+    
+    tab <- tibble("rep" = i, 
+                  "reject" = sapply(model, function(x) pvalue(x)["treat"] < alpha),
+                  "model" = c("Poder_Modelo_1", "Poder_Modelo_2"))
+  })
+  sim <- setDT(do.call(bind_rows, sim))
+  
+  power_table <- tibble("MDE" = x,
+                        "Model" = unique(sim$model),
+                        "power" = sapply(unique(sim$model), function(x) nrow(sim[model == x][reject == "TRUE"])/reps))
+  power_table <- power_table %>% pivot_wider(names_from = "Model", values_from = "power")
+  power_table
+})
+
+mde_escola <- do.call(bind_rows, mde_escola)
+mde_escola
+```
+
+```{r, fig.height=6, fig.width=10}
+mde_escola <- mde_escola %>% pivot_longer(cols = starts_with("Poder_Modelo"), names_to = "Modelo", values_to = "Poder")
+ggplot(data = mde_escola, aes(x = MDE, y = Poder, group = Modelo)) +
+  geom_line(aes(color = Modelo)) +
+  geom_point(aes(color = Modelo, shape = Modelo)) +
+  theme_bw() +
+  scale_y_continuous(n.breaks = 10) +
+  scale_color_brewer(palette = "Dark2", direction = -1) +
+  labs(title = "Função do poder",
+       subtitle = "Nível de significância fixado a 5%",
+       x = "MDE")
+```
+
+A partir disso, é possível verificar que um poder de aproximadamente 80%, a um nível de significância de 5% corresponde a um MDE de 0.15 no caso da aleatorização a nível de aluno e a um MDE de aproximadamente 0.2 com a aleatorização a nível de escola, nas notas de matemática.
+
+## MDE na porcentagem de acertos em matemática: Aleatorização a nível aluno
+
+Calculamos o MDE na porcentagem de acertos em matemática para alguns níveis de poder com aleatorização a nível aluno.
+
+```{r, warning=FALSE}
+set.seed(123)
+
+eff_grid <- seq(0, 0.8, by = 0.1) # Grid de efeitos de 0 a 0.8 com intervalos de 0.1
+alpha <- 0.05 # Nível de significância
+reps <- 100 # Número de repetições da simulação
+
+df2 <- copy(df)
+
+mde <- lapply(eff_grid, function(x){
+  
+  sim <- lapply(1:reps, function(i){
+    df2[, treat := rbinom(.N, 1, prob = 0.5)] # Assignment do tratamento para cada aluno
+    df2[, y := porc_ACERT_MAT + x*treat] # Imposição do efeito sobre o resultado dos tratados
+    
+    # Regressão
+    model <- feols(y~treat+csw0(TP_SEXO), data = df2, 
+               se = "hetero", 
+               lean = TRUE)
+    
+    # Guardamos as rejeições da nula para os dois modelos (sem covariadas, controlando para gênero)
+    tab <- tibble("rep" = i, 
+                  "reject" = sapply(model, function(x) pvalue(x)["treat"] < alpha),
+                  "model" = c("Poder_Modelo_1", "Poder_Modelo_2"))
+  })
+  sim <- setDT(do.call(bind_rows, sim))
+  
+  # Computamos a proporção de rejeições da nula em cada um dos modelos
+  power_table <- tibble("MDE" = x,
+                        "Model" = unique(sim$model),
+                        "power" = sapply(unique(sim$model), function(x) nrow(sim[model == x][reject == "TRUE"])/reps))
+  power_table <- power_table %>% pivot_wider(names_from = "Model", values_from = "power")
+  power_table
+})
+
+mde <- do.call(bind_rows, mde)
+mde
+```
+
+```{r, fig.height=6, fig.width=10}
+mde <- mde %>% pivot_longer(cols = starts_with("Poder_Modelo"), names_to = "Modelo", values_to = "Poder")
+ggplot(data = mde, aes(x = MDE, y = Poder, group = Modelo)) +
+  geom_line(aes(color = Modelo)) +
+  geom_point(aes(color = Modelo, shape = Modelo)) +
+  theme_bw() +
+  scale_y_continuous(n.breaks = 10) +
+  scale_color_brewer(palette = "Dark2", direction = -1) +
+  labs(title = "Função do poder",
+       subtitle = "Nível de significância fixado a 5%",
+       x = "MDE")
+```
+
+## MDE na porcentagem de acertos em matemática: Aleatorização a nível das escolas
+
+Calculamos o MDE na porcentagem de acertos em matemática para alguns níveis de poder com aleatorização a nível das escolas.
+
+```{r, warning=FALSE}
+eff_grid <- seq(0, 0.8, by = 0.1) # Grid de efeitos de 0 a 0.8 com intervalos de 0.1
+alpha <- 0.05 # Nível de significância
+reps <- 100 # Número de repetições da simulação
+
+df2 <- copy(df)
+
+mde_escola <- lapply(eff_grid, function(x){
+  
+  sim <- lapply(1:reps, function(i){
+    
+    # Aleatorização a nível de escola
+    # Fazemos o assignment por escola criando uma nova base apenas com escolas e juntamos com o df original
+    escolas <- tibble('CODESC' = unique(df2$CODESC))
+    setDT(escolas)
+    escolas[, treat := rbinom(.N, 1, prob = 0.5)]
+    df2 <- left_join(df2, escolas, by = 'CODESC')
+
+    df2[, y := porc_ACERT_MAT + x*treat] # Imposição do efeito sobre o resultado dos tratados
+    
+    # Regressão
+    model <- feols(y~treat+csw0(TP_SEXO), data = df2, 
+               se = "hetero", 
+               lean = TRUE)
+    
+    # Guardamos as rejeições da nula para os dois modelos (sem covariadas, controlando para gênero)
+    tab <- tibble("rep" = i, 
+                  "reject" = sapply(model, function(x) pvalue(x)["treat"] < alpha),
+                  "model" = c("Poder_Modelo_1", "Poder_Modelo_2"))
+  })
+  sim <- setDT(do.call(bind_rows, sim))
+  
+  # Computamos a proporção de rejeições da nula em cada um dos modelos
+  power_table <- tibble("MDE" = x,
+                        "Model" = unique(sim$model),
+                        "power" = sapply(unique(sim$model), function(x) nrow(sim[model == x][reject == "TRUE"])/reps))
+  power_table <- power_table %>% pivot_wider(names_from = "Model", values_from = "power")
+  power_table
+})
+
+mde_escola <- do.call(bind_rows, mde_escola)
+mde_escola
+```
+
+```{r, fig.height=6, fig.width=10}
+mde_escola <- mde_escola %>% pivot_longer(cols = starts_with("Poder_Modelo"), names_to = "Modelo", values_to = "Poder")
+ggplot(data = mde_escola, aes(x = MDE, y = Poder, group = Modelo)) +
+  geom_line(aes(color = Modelo)) +
+  geom_point(aes(color = Modelo, shape = Modelo)) +
+  theme_bw() +
+  scale_y_continuous(n.breaks = 10) +
+  scale_color_brewer(palette = "Dark2", direction = -1) +
+  labs(title = "Função do poder",
+       subtitle = "Nível de significância fixado a 5%",
+       x = "MDE")
+```
+
+### Resultados MDE na Porcentagem de Acertos em Matemática
+
+Como resultado, podemos verificar que um poder de 80% a um nível de significância de 5% corresponde a um MDE de aproximadamente 0.6 no caso da aleatorização a nível de aluno e a um MDE de aproximadamente 0.8 com a aleatorização a nível de escola, na porcentagem de acertos em matemática.
+
+# Questão 2
+
+**Quais são os trade-offs entre aleatorizar o tratamento o nível do aluno versus aleatorizar o tratamento no nível da escola? Qual nível de aleatorização você escolheria para esse experimento?**
+
+Quando aleatorizamos a nível de escolas, o MDE calculado é maior, pois a variância do estimador de $\beta$ também é maior, visto que agora a clusterização faz a variância ser:
+
+$$ MDE^C = (t_{1-\kappa} + t_\alpha) \sqrt{\frac{1}{P(1-P)} \frac{\tau^2+\sigma^2}{nJ}} $$
+
+Enquanto que a aleatorização a nível de indivíduo, sem clusterização, era:
+
+$$ MDE^C = (t_{1-\kappa} + t_\alpha) \sqrt{\frac{1}{P(1-P)} \frac{\sigma^2}{nJ}} $$ Dessa forma, a aleatorização a nível de indivíduos permite uma maior determinação do efeito do tratamento, visto que seu mínimo valor detectável é menor, já que a variância do valor estimado é também menor.
+Nesse sentido, a grande vantagem da aleatorização em indivíduos é uma menor variância e, portanto, um maior poder do teste.
+Quanto maior a quantidade de clusters, menor a variância.
+
+Entretanto, nessa aleatorização há alta probabilidade da amostra ser contaminada devido a externalidades presentes no tratamento.
+Nesse contexto, quando um aluno recebe auxílio na matemática básica, ele pode ajudar outros alunos que não foram tratados (grupo de controle) e por isso há uma externalidade no grupo, além de que pode ocorrer os efeitos Hawthorne e John Henry, pois há incentivos de que os indivíduos se comportem de maneira diferente quando sabem que são tratados ou que não são tratados.
+Vale ressaltar que, ao tratarmos da aleatorização a nível da escola, conseguimos resolver o problema das externalidades, assumindo que essas ocorrom somente dentro das escolas e não entre escolas, porém aos custos de uma maior variância.
+
+Outrossim, a aleatorização no nível dos indivíduos também tem uma questão ética, visto que muitos não serão tratados nessas escolas, o que dificulta a aprovação desse modelo.
+
+Diante disso, considerando os resultados obtidos para os MDEs na questão 1, bem como os prós e contra de cada análise, parece que a melhor opção é utilizar a aleatorização a nível de escola.
+A diferença no MDE entre as duas formas de aleatorização, postulando um poder de 80%, é mínima, cerca de 0.05 pontos.
+Porém, a presença de efeitos de spillover do tratamento, que acabarão por viesar nossos resultados na aleatorização no nível do indivíduo, faz com que a melhor alternativa seja a aleatorização a nível escola.
+Por fim, também podemos acabar entrando em questões éticas quando segregamos alunos que recebem e aqueles que não recebem o tratamento.
+
+# Questão 3
+
+**Considere que a aleatorização está sendo feita no nível da escola. São coletados o número de alunos por escola antes e depois da implementação do experimento, e constata-se que, nesse período, o número de alunos nas escolas controle diminuiu, enquanto o número de alunos nas escolas tratadas aumentou. Isso ocorreu porque alguns alunos de escolas do grupo de controle pediram transferência para escolas do grupo de tratamento. Nesse caso, ainda é válido comparar a nota de escolas tratadas com a nota de escolas controle? Se não, como você faria para estimar de forma mais fidedigna o efeito do programa de tutoria?**
+
+Nesse caso, há um problema de viés de seleção na estimação do nosso efeito, impossibilitando comparar a nota entre as escolas. Isso, porque alguns alunos das escolas de controle não possuíram a variável endline, já que mudaram de escola, fazendo com que esta variável agora tenha o efeito do tratamento, enquanto que alunos de escolas de tratamento tiveram suas variáveis baseline corrompidas por estarem em outras escolas no primeiro momento.
+
+Para contornar isso, é possível criar instrumentos para capturar o efeito da intenção de tratar nesses indivíduos e depois calcular o efeito LATE, que mostra o efeito do tratamento sobre a variável baseline.
+
+
+# Questão 4
+
+**Considere agora que não houve transferências de alunos de escolas de um grupo para o outro. Ainda assim, após o experimento, constata-se que as escolas tratadas tem uma porcentagem maior de alunos prestando a prova do SARESP quando comparado com escolas do grupo de controle. Que tipo de problemas isso pode acarretar na estimação do efeito do programa? O que você faria para contornar ou amenizar essas questões?**
+
+O problema em questão é o de atrito, isto é, a perda de observações de indivíduos da nossa amostra conforme o tratamento é implementado. Nesse caso, alguns alunos das escolas de controle saíram da escola e outros que não faziam escolas foram para as escolas de tratamento. Nesse sentido, há um viés de seleção causado pela falta de obtenção dos dados e não seria possível estabelecer o efeito causal nesse caso.
+
+Dessa forma, uma maneira de se contornar o problema do atrito, seria por meio da análise de bandas, na qual computa-se os limites superior (considera que os que saíram da amostra foram as menores notas) e inferior (que os que saíram da amostra foram as maiores notas) do efeito verdadeiro do programa. Portanto, nesse caso não é possível achar o efeito causal, mas sim possível estabelecer os limites em que ele pode se encontrar.
+
+Vale ressaltar que, para obtermos tais limites, é utilizado o método de $Lee$, o qual requer duas hipóteses:
+
+1.  $Y_1$, $Y_0$, $S_1$ e, $S_0$ são independentes de $P$
+
+2.  $S_1 \geq S_0$
+
+A idéia por traz do método de $Lee$ é: os limites são estimados para uma variante de ATT, impacto do programa naqueles pertencentes ao grupo de tratamento que participaram do programa e não abandonariam o programa caso fossem do grupo de controle.
+
+Para que o método funcione, seleciona-se duas variáveis binárias, denotadas por S, na qual:
+
+$S1 = 0 \space \text{se houver atrito}, = 1 \space  \text{caso contrário, condicionado na participação do programa} \space (P = 0)$
+
+$S_0 = 0 \space \text{se houver atrito}, = 1 \space  \text{caso contrário, condicionado na não participação do programa} \space (P = 1)$
+

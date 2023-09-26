@@ -1,0 +1,618 @@
+---
+title: "Exercício Aplicado 1"
+author: "Rodrigo Morgado"
+date: "05/08/2023"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+O presente exercíco consiste em uma aplicação do método de Cholesky e de Blanchard-Quah (1989), a qual será contrastada a amostra utilizada no paper BQ (1989), que corresponde ao período de 1948 Q2 a 1987 Q4 e, a amostra completa, que corresponde ao período de 1948 Q2 a 2020 Q1.
+
+Para tal, serão utilizadas as séries 'y', Taxa de crescimento real do Produto Nacional Bruto (em pontos percentuais, dessazonalizada) e, 'u_raw', Taxa de desemprego (em pontos percentuais, dessazonalizada). Estas, foram obtidas a partir do Nasdaq Data Link.
+
+Resumidamente, o método de Blanchard-Quah (1989) é utilizado como uma forma alternativa de obetermos um VAR estrutural, na qual acrescentamos uma restrição ao modelo, de forma que haja 4 incógnitas e 4 restrições (equações). Faz-se, portanto, uma restrição do efeito do choque hoje até o infinito, na qual o efeito deste no longo prazo é uma constante, que assumimos ser 0. Dessa forma, é possível afirmar que há endogeneidade. Tal método difere da restrição de curto prazo, Cholesky, no sentido de que este consiste na hipótese de que uma das incógnitas é conhecida e, supomos ser 0 (por isso temos uma matriz triangular inferior), não havendo endogeneidade neste método.
+
+Ressalta-se a necessidade de que uma das séries seja não estacionária, a fim de possibilitar a presença de efeitos de longo prazo nesta série. Porém, para aplicarmos o método de BQ, é necessário que todas as séries estejam expressas de forma estacionária. (obs: uma série estacionária, como desemprego, não possui choques de longo prazo). Por isso, no paper, é utilizado o PIB na primeira defasagem.
+
+# **Loading Packages**
+
+```{r loading packages}
+#Limpar o wokrspace
+rm(list = ls())
+graphics.off()
+knitr::opts_chunk$set(echo = TRUE)
+
+load.lib <- c("dynlm","vars","readxl","tidyverse","stats","tseries","gridExtra",
+              "stargazer","svars","Quandl","tstools","devtools","ggplot2","patchwork")
+### Instaling and loading packages
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib,dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+```
+
+```{r loading data}
+## Loading data
+#Caso queiramos obter a serie via web:
+Quandl.api_key('4M8vTzKKHzBwwzLbFhwf')
+dgnp <- Quandl("FRED/GNPC96", type = 'zoo')
+u_raw <- Quandl("FRED/UNRATE", type = 'zoo')
+```
+
+# **Treating data**
+
+```{r}
+#Calculando o log do DGNP em primeira diferenca
+y <- 100*diff(log(dgnp), lag = 1)
+
+#Criando um objeto ts da serie de desemprego expressa trimestralmente:
+  #Estamos pegando a media dos trimestres
+  #u_quartely consiste no desemprego trimestral calculado por meio da media de cada mes em cada trimestre
+u_quartely <- aggregate(ts(u_raw, start = c(1948,1), end = c(2021,7), frequency = 12), nfrequency = 4,mean)
+
+#A partir disso, vamos criar 2 janelas, uma para o paper de BQ, restringindo a amostra e outra compreendendo a amostra completa:
+
+#Criando uma window de acordo com o paper BQ (1989)
+  #Essa quebra estrutural, coincide com o primeiro choque do petróleo (OPEC)
+startBQ <- c(1948,2)
+endBQ <- c(1987,4) #Aqui restringimos a amostra para o período utilizado por BQ
+
+#Criando uma window para a amostra completa:
+start_comp <- c(1948,2)
+end_comp <- c(2020,1)
+
+#Criando um novo objeto, u2, retirando um intervalo especifico de tempo
+u2_BQ <- window(u_quartely, startBQ, endBQ)
+
+u2_comp <- window(u_quartely, start_comp, end_comp)
+
+#Fazendo o mesmo para o PIB:
+y2_BQ <- window(as.ts(y), startBQ, endBQ)
+
+y2_comp <- window(as.ts(y), start_comp, end_comp)
+```
+
+## **Tirando Tendência da séries**
+
+O grande problema nos dados a serem considerados é que o desemprego tem uma tendência positiva ao longo do tempo, podendo se assemelhar a uma tendência de longo prazo. Para resolvermos tal problema, é possível regredir a variável de desemprego em uma tendência linear e retirar os resíduos, pois eles terão um efeito limpo e sem tendência. Fazemos isso para as duas amostras.
+
+Outrossim, precisamos que as series sejam estacionarias.
+
+-   Para transformarmos um VAR e um VMA (o que faremos no modelo BQ), assim como transformamos um AR(1) em um MA infinito, é necessário que as séries sejam estacionárias.
+
+### Retirando Tendência do Desemprego:
+
+```{r}
+#Vamos tirar as tendencias ciclicas das series:
+
+detrend_u_BQ <- dynlm(u2_BQ ~ 1 + trend(u2_BQ))
+  #1: indica a inclusao do intercepto
+  #trend(u2): introduz tendencia linear, ajudando a capturar movimentos de longo-prazo
+  #output contera os residuos do desemprego sem tendencia
+
+#Fazemos o mesmo para a amostra completa:
+detrend_u_comp <- dynlm(u2_comp ~ 1 + trend(u2_comp))
+
+#Computando os residuos da regressao:
+u_BQ <- detrend_u_BQ$residuals
+
+u_comp <- detrend_u_comp$residuals
+```
+
+### Retirando Tendência do PIB:
+
+```{r}
+#Extraindo a quebra estrutural no GNP (taxa de crescimento baixo depois de 1974)
+dummy_start <- c(1974,1)
+dummy <- create_dummy_ts(end_basic = end_comp,
+                         dummy_start = dummy_start, #periodo de inicio da dummy
+                         dummy_end = endBQ, #ate o final da amostra vai valer a dummy
+                         start_basic = startBQ,
+                         basic_value = 0, #pros demais periodos
+                         dummy_value = 1, #para o perido entre dummy star e end
+                         frequency = 4)
+
+demean_y_BQ <- dynlm(y2_BQ ~ 1 + dummy)
+  #1: constante
+  #dummy: possibilita uma mudanca estrutural na serie de GNP começando em Janeiro de 1974
+
+demean_y_comp <- dynlm(y2_comp ~ 1 + dummy)
+
+#Computando os residuos da regressao:
+y_BQ <- demean_y_BQ$residuals
+
+y_comp <- demean_y_comp$residuals
+```
+
+Criaremos 2 datafremes:
+
+-   [data_BQ:]{.underline} refere-se à amostra utilizada por BQ
+
+-   [data_comp:]{.underline} refere-se à amostra completa
+
+Outrossim, será construido um vetor dos dados:
+
+-   Criamos 2 vetores a fim de mostrarmos que a ordem importa para o Cholesky. (OBS: Será utilizada a amostra de BQ, indexados por 1 e 2)
+
+    -   Como resultado, a hipótese de identificação será diferente -\> resultado será diferente
+
+```{r}
+#Construindo um vetor dos dados:
+data_BQ <- cbind(y_BQ,u_BQ)
+data_BQ <- as.matrix(data_BQ)
+
+data2_BQ <- cbind(u_BQ,y_BQ)
+
+data_comp <- cbind(y_comp,u_comp)
+data_comp <- as.matrix(data_comp)
+
+#Criamos 2 vetores a fim de mostrarmos que a ordem importa para o Cholesky. 
+#A hipotese de identificacao será diferente -> resultado será diferente
+
+```
+
+## **Ploting Data**
+
+Serão plotados os dados originais e ajustados, isto é, sem as tendências.
+
+-   **Graficos originais:** sao os graficos originais do periodo analisado no paper
+
+-   **Graficos ajustados:** séries sem tendência
+
+Primeiramente, vamos criar um df:
+
+```{r}
+#Extrai a data original das series e combina com a as.matrix(data), o qual contem u e y, alem de adicionar u2 e y2, componentes sem tendencia
+df_BQ <- data.frame(date=as.Date(time(data_BQ)), as.matrix(data_BQ), u2_BQ,y2_BQ)
+
+colnames(df_BQ) <- c('Date','PIB - Cycle (%)','Unemployment - Cycle (%)', 
+                  'Unemployment - Original (%)','PIB - Original (%)')
+
+df_comp <- data.frame(date=as.Date(time(data_comp)), as.matrix(data_comp), u2_comp,y2_comp)
+
+colnames(df_comp) <- c('Date','PIB - Cycle (%)','Unemployment - Cycle (%)', 
+                     'Unemployment - Original (%)','PIB - Original (%)')
+
+```
+
+```{r}
+#Plotando series
+df_BQ %>%
+  pivot_longer(!Date) %>% #converte os dados para formato long. Transforma varias colunas em 2: uma para os nomes e outra para os dados (forma de painel). (!Date) todas menos a coluna Date devem ser pivotadas
+  ggplot(aes(x = Date, y = value)) +
+  geom_line() +
+  facet_wrap( ~ name, ncol = 2) + #Criar facets baseado no nome da coluna. Os multiplos devem ser arranjados em 2 colunas.
+  labs(x = '', y = '') +
+  theme_light()+
+  labs(title = 'Amostra até 1948')
+
+df_comp %>%
+  pivot_longer(!Date) %>% #converte os dados para formato long. Transforma varias colunas em 2: uma para os nomes e outra para os dados (forma de painel). (!Date) todas menos a coluna Date devem ser pivotadas
+  ggplot(aes(x = Date, y = value)) +
+  geom_line() +
+  facet_wrap( ~ name, ncol = 2) + #Criar facets baseado no nome da coluna. Os multiplos devem ser arranjados em 2 colunas.
+  labs(x = '', y = '') +
+  theme_light()+
+  labs(title = 'Amostra Completa')
+
+```
+
+### Realizando Teste de Estacionariedade (Augmented Dickey-Fuller test):
+
+-   **OBS:** Não inclui nem tendência, nem costante, dado que ambos foram removidos.
+
+```{r}
+adf.lin <- ur.df(y_BQ, type = "none", selectlags = c("AIC"))
+summary(adf.lin)
+
+adf.lin <- ur.df(u_BQ, type = "none", selectlags = c("AIC"))
+summary(adf.lin)
+```
+
+**Conclusão:**
+
+-   Resultados sugerem que podemos rejeitar a hipótese nula a 5% de confiabilidade, dado que a estatística do teste é inferior a -1.95, em ambos os casos.
+
+-   Logo, as séries sao estacionarias.
+
+# **VAR Estrutural**
+
+Após as variáveis estarem estacionárias, é possível montar um modelo VAR na forma reduzida para estimar seus parâmetros. Esse é o primeiro passo para chegar em um VAR na forma estrutural e é considerado o mais simples.
+
+Primeiramente, vamos selecionar o número de lags do modelo, com base nos critérios de informação:
+
+```{r}
+#Selecionando lags do modelo:
+#Selecionando lags do modelo:
+var.crit_BQ <- VARselect(data_BQ,lag.max = 20)
+var.crit_BQ
+
+var.crit_comp <- VARselect(data_comp,lag.max = 20)
+var.crit_comp
+
+```
+
+Para a amostra de BQ: Escolheríamos 3 lags de defasagem, com base no modelo AIC ou 2, com base no modelo SC.
+
+Para a amostra completa: Escolheríamos 13 lags de defasagem, com base no modelo AIC ou 2, com base no modelo SC.
+
+Entretanto, BQ (1989) utiliza 8 lags. Dessa forma, utilizaremos o mesmo número de lags do paper.
+
+## **Estimando o VAR:**
+
+```{r}
+
+#Amostra BQ:
+var_BQ <- VAR(data_BQ, p = 8, type = "none")
+var2_BQ <- VAR(data2_BQ, p = 8, type = 'none')
+
+#Amostra completa:
+var_comp <- VAR(data_comp, p = 8, type = "none")
+
+#Analisando os autovalores:
+roots(var_BQ)
+roots(var_comp)
+
+stargazer(var_BQ$varresult$y, var_BQ$varresult$u, type = 'text', title = "Resultado VAR Estrutural")
+```
+
+# Identificação
+
+Vamos realizar 2 formas de identificação:
+
+1.  [**Restrições de curto prazo**]{.underline}, mais comum, são a decomposição de Cholesky, também chamadas de identificação recursiva
+
+2.  [**Restrições de longo prazo**]{.underline}, correspondem ao método de Blanchard-Quah
+
+## Restrição de Curto Prazo:
+
+Utiliza-se o método de Cholesky, por meio de uma matriz diagonal superior, com o argumento de que os [choques de oferta]{.underline} não têm efeito sobre o produto, mas têm efeito sobre o desemprego, enquanto [os de demanda]{.underline} têm efeito em ambos.
+
+### Analisando IRF com base de BQ:
+
+```{r, fig.align='center'}
+#Computa a matriz estimada B, a qual demonstra o impacto do coeficiente de um choque estrutural nas variaveis
+
+#Amostra BQ:
+id.chol(var_BQ)
+  #desemprego contemporaneo nao afeta o crescimento do PIB contemporaneo (vemos pelos zeros)
+id.chol(var2_BQ)
+  #desemprego contemporaneo nao é afetado pelo crescimento do PIB contemporaneo
+
+#Amostra completa:
+id.chol(var_comp)
+
+
+#Colocando na forma estrutural:
+svar.1_BQ <- id.chol(var_BQ)
+svar.2_BQ <- id.chol(var2_BQ)
+
+svar.1_comp <- id.chol(var_comp)
+
+#Calculando as funcoes impulso resposta:
+
+#IRF utilizando amostra BQ:
+
+plot(mb.boot(svar.1_BQ, n.ahead = 40, nboot = 1000), #Estamos fazendo um bootstrap, simula com erros normais. Ele simula 1000 vezes, ate 40 periodos para frente. O IC sera 1 desvio padrao para cima e para baixo
+     lowerq = 0.16, 
+     upperq = 0.84,
+     distr = 'gaussian') +
+  theme_light(base_size = 12) +
+  labs(title = 'IRFs: sem efeito contemporaneo de u em y',
+       subtitle = 'Amostra 1: até 1987') #sem efeito contemporaneo de u em y
+```
+
+#### Análise das IRFs:
+
+##### `Utilizando a base de BQ`
+
+-   A partir dos gráficos é possível observar que os choques se dissipam no ***longo prazo (LP)***.
+
+-   [*Coluna esquerda:*]{.underline} são os choques de taxa de crescimento do produto:
+
+    -   Choque inicialmente positivo no PIB
+
+    -   Inicialmente o desemprego cai, mas no LP ele volta para 0
+
+-   No paper, não há a parte negativa observada no efeito sobre o PIB, uma vez que eles plotam a IRF acumulada, a qual corresponde ao produto. Logo, o que nós observamos no gráfico do paper é que há um efeito neutro sobre o produto.
+
+-   Aqui estamos olhando para a taxa de crescimento do produto e nao o nível do produto.
+
+-   [*Coluna direita:*]{.underline} são os choques de desemprego sobre as variáveis:
+
+    -   Desemprego não afeta o produto, pela hipótese (pode ser observado que no período 0 o impacto será 0). Logo depois, é observada uma queda e, o efeito se dissipa no LP.
+
+    -   Sobre o desemprego, o choque tambem se dissapará no LP.
+
+Analisando o plot para a segunda base, a fim de evidenciarmos que a ordem importa para Choleski:
+
+```{r, fig.align='center'}
+plot(mb.boot(svar.2_BQ, n.ahead = 40, nboot = 1000), 
+     lowerq = 0.16, 
+     upperq = 0.84,
+     distr = 'gaussian') +
+  theme_light(base_size = 12) +
+  labs(title = 'IRFs: sem efeito contemporaneo de y em u',
+       subtitle = 'Amostra 2: até 1987')
+```
+
+#### Análise das IRFs:
+
+##### `Utilizando a base de BQ, porém invertendo a ordem`
+
+Assim como anteriormente, pelos gráficos observamos que os choques se dissipam no LP.
+
+[Coluna da direita:]{.underline} são os choques de taxa de crescimento do produto:
+
+-   Em relação a variação do desemprego, observa-se que o efeito é menor, dado que o valor mínimo atingido é aproximadamente -0.3, enquanto que no gráfico anterior, o mínimo atingido foi de aproximadamente -0.6. Entretanto, salvo pequeno detalhe, ambos os choques reduzem o desemprego, o qual retorna ao nível inicial após 3/4 anos.
+
+-   Em relação a variação da taxa de crescimento do PIB, também não há grandes variações, dado que o choque inicial aumenta a taxa de crescimento, a qual comaça a declinar em sequência, atingindo um ponto negativo e, no longo prazo retornando ao nível inicial.
+
+[Coluna da esquerda:]{.underline} são os choques do desemprego:
+
+-   Em relação a variação do desemprego, também não há grandes alterações.
+
+-   Em relação a variação da taxa de crescimento do PIB, também não haverá grande alterações, salvo mudanças de magnitude.
+
+Em suma, a ordem altera a magnitude do impacto de determinado choque em determinada variável. Porém, a ordem não resulta em uma mudança brusca no comportamento da série após sofrer um choque e, não altera o fato de que não haverá efeitos de longo prazo.
+
+### Analisando IRF com a base completa:
+
+```{r, fig.align='center'}
+#Amostra completa:
+
+plot(mb.boot(svar.1_comp, n.ahead = 40, nboot = 1000), 
+     lowerq = 0.16, 
+     upperq = 0.84,
+     distr = 'gaussian') +
+  theme_light(base_size = 12) +
+  labs(title = 'IRFs: sem efeito contemporaneo de y em u',
+       subtitle = 'Amostra Completa')
+```
+
+#### Análise das IRFs:
+
+A partir dos gráficos é possível observar que os choques se dissipam no ***longo prazo (LP)***.
+
+[*Coluna esquerda:*]{.underline} são os choques de taxa de crescimento do produto
+
+[*Coluna direita:*]{.underline} são os choques de desemprego sobre as variáveis
+
+Comparando-se as primeiras IRFs com a amostra 1 de BQ, não é possível constatar grandes variações das respostas das séries aos choques, exceto o gráfico do choque do desemprego sobre o desemprego, na qual na amostra completa, este não fica negativo, enquanto que na amostra de BQ, há uma queda para -0.1, sendo essa a maior divergência.
+
+## Restricao de Longo Prazo (Blanchard-Quah):
+
+-   Vamos interpretar os disturbios com efeitos temporarios no output como sendo, em suma, efeitos de demanda.
+
+-   Aqueles com efeitos permanentes no output serao interpretados como efeitos de oferta.
+
+-   Para chegar no caso de longo prazo, é importante abrir o modelo VAR em uma média móvel infinita (é possível fazer isso pois as variáveis são estacionárias).
+
+No longo prazo, a restrição utilizada é a mesma, com uma matriz triangular inferior, mas a formação dessa matriz é diferente e, portanto, também são os resultados. Como agora a matriz triangular inferior é a que acompanha somente os resíduos (pois é uma média móvel), assume-se que a soma dos coeficientes é zero, o que é mais aceitável do que dizer que todos são zero igual no caso anterior (Cholesky).
+
+[**OBS:**]{.underline} o eixo x, corresponde à linha superior do output do codigo, deveria ser choque de oferta e de demanda, respectivamente, ao inves de y e u.
+
+Por hipótese, o choque de demanda, no longo prazo, terá impacto 0 sobre o produto. Logo, o choque da coluna da direita, 'u', representa o choque de demanda.
+
+```{r}
+
+#Amostra BQ:
+bq_ident_BQ <- BQ(var_BQ)
+summary(bq_ident_BQ)
+
+#Amostra Completa:
+bq_ident_comp <- BQ(var_comp)
+summary(bq_ident_comp)
+
+#Extraindo IRFs acumulada e em nivel:
+source_url("https://raw.githubusercontent.com/anguyen1210/var-tools/master/R/extract_varirf.R") #Permite usar função 'extract_varirf'
+
+#Amostra BQ:
+irf_BQ <- extract_varirf(irf(bq_ident_BQ, n.ahead = 40, boot = TRUE, ci = 0.68))
+irf_cum_BQ <- extract_varirf(irf(bq_ident_BQ, n.ahead = 40, cumulative = T, boot = TRUE, ci = 0.68))
+
+#AMostra Completa:
+irf_comp <- extract_varirf(irf(bq_ident_comp, n.ahead = 40, boot = TRUE, ci = 0.68))
+irf_cum_comp <- extract_varirf(irf(bq_ident_comp, n.ahead = 40, cumulative = T, boot = TRUE, ci = 0.68))
+```
+
+-   Ao utilizarmos a amostra completa observamos que:
+
+    -   No Curto Prazo:
+
+        -   Há uma redução do efeito da demanda sobre o produto, no CP, mas um aumento deste sobre o desemprego.
+
+        -   Há um aumento do efeito da oferta sobre o produto, no CP, mas uma redução deste sobre o desemprego.
+
+    -   No Longo Prazo:
+
+        -   Há um aumento do efeito da demanda sobre o desemprego, no LP
+
+        -   Há um aumento do efeito da oferta sobre o produto, no LP, mas uma redução do efeito sobre o desemprego.
+
+### Plotando as IRFs:
+
+```{r Ploting IRFs da amostra BQ, fig.align='center'}
+#Gráfico 1: Choque de oferta - Resposta do produto
+graph_dgnp.shock.on.dgnp <- ggplot(irf_cum_BQ, aes(x=period,
+                                                   y=irf_y_bq_y_bq,
+                                                   ymin=lower_y_bq_y_bq,
+                                                   ymax=upper_y_bq_y_bq)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de oferta - Resposta do produto", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 2: Choque de oferta - Resposta do desemprego
+graph_dgnp.shock.on.u <- ggplot(irf_BQ, aes(x=period,
+                                            y=irf_y_bq_u_bq,
+                                            ymin=lower_y_bq_u_bq,
+                                            ymax=upper_y_bq_u_bq)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de oferta - Resposta do desemprego", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 3: Choque de demanda - Resposta do desemprego
+graph_u.shock.on.u <- ggplot(irf_BQ, aes(x=period,
+                                         y=-irf_u_bq_u_bq,
+                                         ymin=-lower_u_bq_u_bq,
+                                         ymax=-upper_u_bq_u_bq)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de demanda - Resposta do desemprego", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 4: Choque de demanda - Resposta do produto
+graph_u.shock.on.dgnp <- ggplot(irf_cum_BQ, aes(x=period,
+                                                y=-irf_u_bq_y_bq,
+                                                ymin=-lower_u_bq_y_bq,
+                                                ymax=-upper_u_bq_y_bq)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de demanda - Resposta do produto", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Organização dos gráficos em uma única tela:
+grid.arrange(graph_dgnp.shock.on.dgnp, graph_dgnp.shock.on.u, graph_u.shock.on.dgnp, graph_u.shock.on.u, ncol = 2)
+```
+
+#### Interpretações Gráficas:
+
+-   Observe que o choque de demanda sobre y não possui parte negativa, uma vez que estamos utilizando a IRF acumulada. Logo, estamos analisando o nível do produto e não taxa de variação.
+
+-   Outrossim, note que o efeito de um choque monetário será dissipado sobre o desemprego, mas nao será dissapado sobre o produto.
+
+    -   Isso evidencia a teoria do paper de que o choque de oferta possui efeito permanente, longo prazo, apenas sobre o produto.
+
+-   Ja o choque de demanda, apresenta efeito temporario, curto prazo, em ambos os outputs.
+
+<!-- -->
+
+    -   Choques de demanda possuem um efeito hump-shaped, formato de parábola, em ambos os outputs
+
+    -   O efeito do choque de demanda possui um pico apos 1 ano e some apos 2/3 anos
+
+-   O efeito dinâmico de choques de demanda sobre o desemprego é uma imagem espelhada no choque de demanda sobre o produto
+
+-   Choques de oferta aumentam o produto
+
+    -   Por hipotese, nem choque de oferta nem choque de produto afeta a taxa natural de desemprego. Logo, choque positivos de demanda, podem inicialmente aumentar o desemprego, mas posteriormente o efeito sera dissipado.
+
+```{r Ploting IRFs da amostra Completa, fig.align='center'}
+#Graficos da amostra completa:
+
+#Gráfico 1: Choque de oferta - Resposta do produto
+graph_dgnp.shock.on.dgnp_comp <- ggplot(irf_cum_comp, aes(x=period,
+                                                   y=irf_y_comp_y_comp,
+                                                   ymin=lower_y_comp_y_comp,
+                                                   ymax=upper_y_comp_y_comp)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de oferta - Resposta do produto", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 2: Choque de oferta - Resposta do desemprego
+graph_dgnp.shock.on.u_comp <- ggplot(irf_comp, aes(x=period,
+                                            y=irf_y_comp_u_comp,
+                                            ymin=lower_y_comp_u_comp,
+                                            ymax=upper_y_comp_u_comp)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de oferta - Resposta do desemprego", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 3: Choque de demanda - Resposta do desemprego
+graph_u.shock.on.u_comp <- ggplot(irf_comp, aes(x=period,
+                                         y=-irf_u_comp_u_comp,
+                                         ymin=-lower_u_comp_u_comp,
+                                         ymax=-upper_u_comp_u_comp)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de demanda - Resposta do desemprego", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Gráfico 4: Choque de demanda - Resposta do produto
+graph_u.shock.on.dgnp_comp <- ggplot(irf_cum_comp, aes(x=period,
+                                                y=-irf_u_comp_y_comp,
+                                                ymin=-lower_u_comp_y_comp,
+                                                ymax=-upper_u_comp_y_comp)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_ribbon(fill = "gray", alpha = 0.4, color = "grey50", linetype = "dashed")+
+  geom_line(size=1) + 
+  labs(title="Choque de demanda - Resposta do produto", x="Trimestre", y="") +
+  theme_light() +
+  theme(plot.title=element_text(size=11, hjust=0.5),
+        axis.title.y=element_text(size=11))
+
+#Organização dos gráficos em uma única tela:
+grid.arrange(graph_dgnp.shock.on.dgnp_comp, graph_dgnp.shock.on.u_comp, 
+             graph_u.shock.on.dgnp_comp, graph_u.shock.on.u_comp, ncol = 2)
+```
+
+## Forcast Error Variance Decomposition (FEVD)
+
+A ideia por traz da realização de um FEVD consiste em observarmos o percentual de participação de cada choque na variância da previsão.
+
+```{r FEVD com amostra BQ, fig.align='center'}
+#Utilizando amostra do paper
+#Forcast Error Variance Decomposition (FEVD)
+ plot(fevd(bq_ident_BQ, n.ahead = 40))
+
+ #Lembrar que u = demanda e y = oferta
+```
+
+### Interpretação:
+
+Em relação ao produto, primeiro gráfico, observa-se que a maior parte do erro de previsão vem do choque de demanda. Logo, o que é imprevisível no curto prazo para o produto é a demanda.
+
+Já em relação ao desemprego, observa-se que o erro de previsão é mais bem distribuído para o choque de demanda e oferta, no curto prazo (observar que a parte escura, 1 horizonte para frente é alta). Entretanto, no longo prazo, a demanda se torna imprevisível.
+
+```{r FEVD com amostra Completa, fig.align='center'}
+#Utilizando Amostra completa
+#Forcast Error Variance Decomposition (FEVD)
+  plot(fevd(bq_ident_comp, n.ahead = 40))
+
+ #Lembrar que u = demanda e y = oferta
+```
+
+### Interpretação:
+
+Em relação ao produto, primeiro gráfico, observa-se que a maior parte do erro de previsão vem do choque de oferta. Logo, o que é imprevisível, tanto no curto prazo quanto no longo prazo, para o produto é a oferta.
+
+Já em relação ao desemprego, observa-se que a imprevisibilidade deste no curto prazo deve-se à demanda. Conforme avançamos nos horizontes, há um aumento de participação da oferta para imprevisibilidade do modelo, porém com grande predomínio da demanda.
+
+# Conclusões Finais:
+
+Primeiramente, analisando a amostra completa com todos os dados até 2020, percebe-se primeiro que um choque positivo de demanda causa um efeito positivo no PIB no curto prazo, tanto no caso de estimação de Cholesky quanto na estimação de longo prazo. A diferença entre as duas são os efeitos e suas durações: enquanto em Cholesky o efeito é bem alto e sua duração curta, no método de BQ é um pouco demorado e ele estabiliza rápido em um efeito de longo prazo, sem grandes distorções para períodos próximos.
+
+Enquanto isso, é possível notar um efeito negativo de choques de demanda e de oferta sobre o desemprego, uma vez que causam uma maior atividade econômica, gerando um menor desemprego. Isso ocorre em sintomia com o produto, visto que o desemprego cai conforme o produto aumenta, estando de acordo com a análise do item anterior.
+
+Em relação à decomposição da variância, o método de estimação de longo prazo com amostra completa mostra uma grande participação dos choques de oferta sobre a variância do PIB, enquanto choques de demanda não têm tanto efeito assim sobre o produto. Isso indica que o produto tende a movimentar mais conforme os choques são de oferta, pois seu efeito é maior sobre o produto.
+
+Cabe destacar que, da amostra reduzida do paper para a amostra completa, a variância ganha força, tanto que o efeito na decomposição da variância é maior. Algo também evidente é que choques de oferta positivos normalmente aumentam o desemprego imediatamente, porém no longo prazo o reduzem para atingir o nível inicial.
+
+A rigidez nominal pode ser utilizada para explicar porque não há um aumento de mesma proporção do PIB, se comparado com o desemprego, quando há um choque positivo de oferta.
+
+Já a rigidez de salário real pode ser utilizada para explicar porque aumentos de produtividade podem resultar em redução do desemprego após alguns trimestres, o qual persiste até que os salários reais se estabeleça com o novo nível de produtividade.

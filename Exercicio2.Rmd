@@ -1,0 +1,493 @@
+---
+title: "Exercício Aplicado 2"
+author: "Rodrigo Morgado"
+output:
+  word_document: default
+date: "`r format(Sys.time(), '%d, %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# Introdução
+
+Seguinte exercício aplicado tem por objetivo a aplicação do método de restrição de sinal desenvolvido por Uhlig (2005).
+Ademais, devemos compara as IRFs obtidas com o método de restrição de curto prazo, Cholesky, principalmente em relação ao deflator do PIB, no que tange ao 'price puzzle'.
+
+Para o exercício será utilizada a base de dados, data_ea2, disponibilizada.
+Nela temos as seguintes séries:
+
+-   Real Gross Doméstic Product = GDP
+
+-   GDP Implicit Price Deflator = Deflator
+
+-   Producer Price Indez for all Commodities = Commodity
+
+-   Effective Federal Funds Rate = FFD
+
+-   Nonborrowed Reserves of Depository Institutions = NonReserves
+
+-   Total Reserves of Depository Institutions = TotReserves
+
+-   Real Personal Consumption Expenditures = Consumption
+
+-   Real Gross Private Domestic Investment = Investment
+
+Por fim, vale ressaltar que diferentemente do artigo, serão utilizados 4 lags de defasagem, a fim de computarmos 1 ano, assim como Uhlig.
+
+```{r installing/loading packages, echo=FALSE,warning=FALSE,message=FALSE}
+#Limpar o wokrspace
+rm(list = ls())
+graphics.off()
+knitr::opts_chunk$set(echo = TRUE)
+
+# salvar os objetos ao longo das chuncks
+save.image("ws.RData")
+load('ws.RData')
+```
+
+```{r}
+load.lib <- c("dynlm","vars","readxl","tidyverse","stargazer","svars","minqa","gridExtra",
+              "mvnfast","HI","VARsignR")
+### Instaling and loading packages
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib,dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+
+```
+
+# Data
+
+Primeiramente, vamos primeiro transformar os dados de forma idÊntica ao realizado no paper.
+Vamos tirar o log de todas as variáveis da base e multiplicar por 100, calculando assim uma aproximação para variação percentual, exceto da variável "Effective Federal Funds Rate (ff)", pois ela não foi utilizada em log.
+
+```{r}
+## Loading data
+setwd("C:/Users/Rodrigo/OneDrive - Fundacao Getulio Vargas - FGV/EESP/Econometria Aplicada/Base de Dados")
+dados <- read_excel("data_ea2.xlsx", sheet = 'data')
+
+```
+
+```{r}
+#Transformando em Time Series
+GDP <- ts(log(100*dados$rgdp), start = c(1965,1), frequency = 4)
+
+Deflator <- ts(log(100*dados$pgdp), start = c(1965,1), frequency = 4)
+
+Commodity <- ts(log(100*dados$pcomm), start = c(1965,1), frequency = 4)
+
+FFD <- ts(dados$ff, start = c(1965,1), frequency = 4)
+
+NonReserves <- ts(log(100*dados$nbres), start = c(1965,1), frequency = 4)
+
+TotReserves <- ts(log(100*dados$totres), start = c(1965,1), frequency = 4)
+
+Consumption <- ts(log(100*dados$rcons), start = c(1965,1), frequency = 4)
+
+Investment <- ts(log(100*dados$rinv), start = c(1965,1), frequency = 4)
+
+#Juntando as series:
+data1 <- cbind(GDP, Deflator, Commodity, FFD, NonReserves, TotReserves) #Base de Uhlin
+```
+
+Uhlin interpolou os dados, porém em virtude da dificuldade de reproduzir isso, não será feito aqui.
+
+# Identificação utilizando Restrição de Curto Prazo
+
+Para termos uma base comparativa, será realizado a restrição de Cholesky, assim como utilizado em Uhlig (2005)
+
+Uhlig utiliza, em seu paper, dados mensais, enquanto nós utilizaremos dados trimestrais.
+Dessa forma, para mantermos o período de 1 ano, ao invés de utilizarmos 12 lags de defasagem, assim como no paper, utilizaremos 4 lags.
+Outrossim, destaca-se a importância da ordem das variáveis para a restrição, na qual será utilizada a mesma ordem que Uhlig.
+
+Como no paper, queremos estimar o efeito de uma política monetária contracionista.
+Para isso, será realizado um choque positivo nos juros e, por conseguinte, será analisado o comportamento das variáveis até 60 períodos após o choque:
+
+```{r}
+#Estimando o VAR:
+var.1 <- VAR(data1, p = 4, type = "none")
+
+#Computa a matriz estimada B, a qual demonstra o impacto do coeficiente de um choque estrutural nas variaveis
+id.chol(var.1)
+
+#Colocando na forma estrutural:
+svar <- id.chol(var.1)
+
+#Calculando as funcoes impulso resposta:
+chol.irf <- mb.boot(svar, n.ahead = 40, nboot = 1000)
+```
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+#Choque no Deflator
+ deflator <- plot(chol.irf, lowerq = 0.16, #  percentil dos dados que correspondem a 1 desvio padrão
+                     upperq = 0.84,  # equivalente ao intervalo de confiança de um desvio padrão
+                     distr = "gaussian",
+                     selection = c(2,4)) +  #aqui a primeira entrada é a variável de resposta e a segunda é a variável de impulso, referente à ordenação do seu VAR
+   theme_light(base_size = 12)
+ 
+#Choque no PIB
+pib <-  plot(chol.irf, lowerq = 0.16, 
+                     upperq = 0.84,  
+                     distr = "gaussian",
+                     selection = c(1,4)) +  
+   theme_light(base_size = 12)
+
+#Choque na Commodity
+commodity <-  plot(chol.irf, lowerq = 0.16, 
+                     upperq = 0.84,  
+                     distr = "gaussian",
+                     selection = c(3,4)) +  
+   theme_light(base_size = 12)
+
+#Choque no FFD
+ffd <-  plot(chol.irf, lowerq = 0.16, 
+                     upperq = 0.84,  
+                     distr = "gaussian",
+                     selection = c(4,4)) +  
+   theme_light(base_size = 12)
+
+#Choque no NonReserves
+nreserv <-  plot(chol.irf, lowerq = 0.16, 
+                     upperq = 0.84,  
+                     distr = "gaussian",
+                     selection = c(5,4)) +  
+   theme_light(base_size = 12)
+
+#Choque no TotReserves
+trever <-  plot(chol.irf, lowerq = 0.16, 
+                     upperq = 0.84,  
+                     distr = "gaussian",
+                     selection = c(6,4)) +  
+   theme_light(base_size = 12)
+
+grid.arrange(pib, ffd, deflator, nreserv, commodity, trever)
+```
+
+### Interpretações Gráficas:
+
+Primordialmente cade destacar que os gráficos acima computam apenas o choque de uma política monetária contracionista, isto é, aumento dos juros.
+Outrossim, cabe destacar que os gráficos acima apresentam certa semelhança aos gráfico obtidos por Uhlig, no que tange ao comportamento dos gráficos.
+
+Ao realizarmos tal choque é possível notar que: O PIB sofre um leve aumento e depois reduz.
+O deflator sofre um aumento e, após alguns períodos começa a reduzir, caracterizando o "price puzzle", na qual há um aumento dos preços após um aumento dos juros, quando deveria haver uma redução dos preços, de acordo com a teoria econômica.
+
+Todos os demais gráficos, exceto o FFD apresentam um aumento após o choque e, após alguns períodos há uma redução.
+
+## Price Puzzle
+
+O 'price puzzle' consiste no fato de que um aumento na taxa de juros, choque monetário contracionista, resulta em um aumento da inflação, quando identificado de forma recursiva.
+Podemos ver isso na IRF do Deflator do PIB, na qual ao sofrer um choque monetário contracionista, o preço aumenta ao invés de diminuir (esperado).
+
+A solução que Ohling deu para este problema foi a utilização da restrição de sinal em sua forma pura, na qual a abordagem agnóstica que será utilizada, restrição de sinal, resolve o problema do 'price puzzle', como veremos a seguir.
+
+# Identificação utilizando Restrição de Sinal
+
+## Método de Restrição de Uhling (2005)
+
+Uhlig tinha por objetivo analisar o efeito de um choque não antecipado de política monetária, como por exemplo um aumento do desvio no FED funds rate sobre o PIB dos Estados Unidos e, o 'price puzzle'.
+Para tal, ele necessita de matrizes que deem os choques estruturais não correlacionados.
+Por isso, ele utilizar-a a matriz de Cholesky, dado que ela possui tal propriedade (matriz triangular inferior que caracteriza um sistema recursivo).
+Mas, o diferencial de seu método está no fato de que, essa matriz de Cholesky, gera candidatos a chqoues estruturais e não os choques estruturais em si.
+Vale ressaltar que o que torna os choques estruturais úteis é a ausência de correlação entre eles.
+Seu método, portanto, consiste na multiplicação da matriz de Cholesky obtida, por uma matriz de rotação, na qual no paper é denominada Q.
+
+Baseando-se no modelo DSGE, ele sugere que uma inovação não antecipada na FED's policy rate:
+
+-   Não reduz o FED's policy rate por x meses após o choque;
+
+-   Não aumenta o índice de preços de commodity e inflação por x meses após o choque;
+
+-   Não aumenta as reservas não emrpestadas por x meses após o choque.
+
+Em suma, estamos construindo um vetor de restrições, na qual os elementos podem ser interpretados da seguinte forma:
+
+-   **Os números:** representam o índice da coluna da variável do df sobre o qual queremos impor uma restrição de sinal.
+    Logo, se colocamos '4', estamos nos referindo a quarta coluna do df 'data1', o qual corresponde ao FFD.
+
+-   **Já o sinal**, por sua vez, representa o efeito da variável.
+    Logo, se for positivo, terá um efeito positivo, se for negativo, o efeito será negativo.
+
+Logo, assim como Uhlig, utilizaremos 4 restrições para identificar esse choque monetário.
+
+```{r}
+## Método de Restrição de Uhling (2005)
+
+#Construindo o vetor de restrição:
+#O choque é representado pela primeira variável do nosso vetor.
+#O primeiro elemento do vetor com restrição de sinal indica o choque de interesse do modelo (monetário, FFD, para Uhling)
+constr <- c(+4, #FFD possui um efeito positivo em FFD
+            -3, #FFD possui um efeito negativo em Commodity
+            -2, #FFD possui um efeito negativo em Deflator
+            -5  #FFD possui um efeito negativo em NonReserves
+            )   #TotReserves e GDP não possuem restrição
+```
+
+```{r, echo=FALSE, warning=FALSE,echo=FALSE, message=FALSE}
+#Método de Rejeição de Uhling:
+model1 <- uhlig.reject(Y=data1,          #data for estimação
+                       nlags = 4,       #Número de lags usado para estimar o VAR reduzido
+                       draws = 200,      #Número de sorteios para o processo de estimação (Matriz de Covariância, seria o B_0_chap, Cholesky)
+                       subdraws = 200,   #Número de subdivisões em torna da rotina rejeição (matrizes Q sorteadas, matriz de rotação)
+                       nkeep = 1000,     #Número de sorteios que a gnt aceita para as IRFs
+                       KMIN = 1,         #Mínimo de lags para processo de identificasção
+                       KMAX = 6,         #Máximo de lags para processo de identificasção
+                       constrained = constr, #Vetor com as variáveis da restrição de sinal
+                       constant = FALSE, #Não tem constante
+                       steps = 60)       #Número de steps para as IRFs
+```
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+# get posterior draws
+irfs1 <- model1$IRFS
+
+# plot impulse response functions
+vl <- c("GDP","GDP Deflator","Comm.Pr.Index","Fed Funds Rate","NB Reserves","Total Reserves")
+irfplot(irfdraws=irfs1,        #Estou pegando IRfs
+        type="median",         #Estamos plotando a mediana das IRFs
+        labels=vl, 
+        save=FALSE, 
+        bands=c(0.16, 0.84),   #Refere-se as bands de confiabilidade
+        grid=TRUE,
+        bw=FALSE)
+```
+
+### Interpretações Gráficas:
+
+Primeiramente, vale ressaltar que a linha IRF em vermelho consiste na mediana das IRFs sorteadas.
+Dessa forma, é possível que essa trajetória não exista.
+
+Observe que o problema do 'price puzzle' foi resolvido!
+O choque monetário reduz o deflator do PIB.
+Entretanto, ao realizarmos tal restrição, observamos um efeito positivo no PIB, o que também é contra intuitivo.
+
+Dado esse novo problema, vamos adicionar uma restrição para a resposta do PIB após um choque monetário de aumento do juros.
+
+### Adicionando uma restrição para o PIB
+
+```{r warning=FALSE, message=FALSE, results='hide', eval=FALSE}
+constr <- c(+4, #FFD possui um efeito positivo em FFD
+            -3, #FFD possui um efeito negativo em Commodity
+            -2, #FFD possui um efeito negativo em Deflator
+            -5, #FFD possui um efeito negativo em NonReserves
+            -1  #FFD possui um efeito negativo em PIB
+            )   #TotReserves não possui restrição
+```
+
+```{r echo=FALSE, warning=FALSE,echo=FALSE, message=FALSE}
+#Método de Rejeição de Uhling:
+model2 <- uhlig.reject(Y=data1,          
+                       nlags = 4,       
+                       draws = 200,      
+                       subdraws = 200,   
+                       nkeep = 1000,     
+                       KMIN = 1,         
+                       KMAX = 6,         
+                       constrained = constr, 
+                       constant = FALSE, 
+                       steps = 60)   
+```
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+irfs2 <- model2$IRFS
+
+irfplot(irfdraws=irfs2,        
+        type="median",         
+        labels=vl, 
+        save=FALSE, 
+        bands=c(0.16, 0.84),   
+        grid=TRUE,
+        bw=FALSE)
+```
+
+#### Interpretação Gráfica:
+
+Com a nova restrição sobre o PIB, obtivemos uma evidência a favor do consenso de uma redução do PIB após uma política monetária contracionista.
+Observe também que ao adicionarmos tal restrição não mudamos o fato da não existência do 'price puzzle'.
+
+## FEVDs para o choque de interesse:
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+## FEVDs para o choque de interesse:
+fevd1 <- model1$FEVDS
+
+#table:
+fevdplot(fevd1, table = TRUE, labels = vl, periods = c(1,2,3,4,5,10,20,30,40,50,60))
+
+#plot
+fevdplot(fevd1, labels = vl, save = FALSE, bands = c(0.16,0.84),
+         grid = TRUE, bw = FALSE, table = FALSE, periods = c(1,2,3,4,5,10,20,30,40,50,60))
+
+```
+
+## Adicionando variáveis ao modelo
+
+```{r,echo=FALSE}
+data2 <- cbind(GDP, Deflator, Commodity, FFD, NonReserves, TotReserves, Consumption, Investment)
+```
+
+```{r, echo=FALSE}
+#Construindo vetor de restrição:
+constr <- c(+4, #FFD possui um efeito positivo em FFD
+            -3, #FFD possui um efeito negativo em Commodity
+            -2, #FFD possui um efeito negativo em Deflator
+            -5, #FFD possui um efeito negativo em NonReserves
+            -7, #FFD possui um efeito negativo em Consumption
+            -8  #FFD possui um efeito negativo em Investment
+            )   #TotReserves e PIB não possuem restrição
+```
+
+```{r, echo=FALSE, warning=FALSE,echo=FALSE, message=FALSE}
+#Método de Rejeição de Uhling:
+model3 <- uhlig.reject(Y=data2,          
+                       nlags = 4,       
+                       draws = 300,       
+                       subdraws = 300,   
+                       nkeep = 1000,     
+                       KMIN = 1,         
+                       KMAX = 6,         
+                       constrained = constr, 
+                       constant = FALSE, 
+                       steps = 60)       
+```
+
+Note que postulamos um efeito negativo do aumento do juros sobre o consumo e sobre o investimento.
+
+-   Em relação ao consumo, um aumento do juros resulta em um aumento do custo de empréstimos, reduzindo os incentivos para tomar empréstimos.
+    Logo, espera-se que o consumo caia.
+
+-   Em relação ao investimento, com um juros mais alto, preciso de um maior retorno do meu investimento para compensar esse aumento do preço do dinheiro.
+    O aumento do juros, portanto, reduz os incentivos para investimento.
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+irfs3 <- model3$IRFS
+
+v2 <- c("GDP","GDP Deflator","Comm.Pr.Index","Fed Funds Rate","NB Reserves","Total Reserves","Consumption","Investment")
+irfplot(irfdraws=irfs3,        
+        type="median",         
+        labels=v2, 
+        save=TRUE, 
+        bands=c(0.16, 0.84),   
+        grid=TRUE,
+        bw=FALSE)
+```
+
+### Interpretações
+
+Ao adicionarmos as variáveis "Consumption" e "Investment" é possível notar que não há o problema de 'price puzzle' uma vez que após o choque o deflator do PIB diminui.
+Entretanto, após o choque há um aumento do PIB, indicando que o método de restrição de sinal, em sua forma pura, como denominado no paper, ainda apresenta a ambiguidade do PIB.
+
+### Adicionando uma restrição para o PIB
+
+```{r,echo=FALSE, warning=FALSE,echo=FALSE, message=FALSE}
+constr <- c(+4, #FFD possui um efeito positivo em FFD
+            -3, #FFD possui um efeito negativo em Commodity
+            -2, #FFD possui um efeito negativo em Deflator
+            -5, #FFD possui um efeito negativo em NonReserves
+            -1,  #FFD possui um efeito negativo em PIB
+            -7, #FFD possui um efeito negativo em Consumption
+            -8  #FFD possui um efeito negativo em Investment
+            )   #TotReserves não possui restrição
+
+#Método de Rejeição de Uhling:
+model4 <- uhlig.reject(Y=data2,          
+                       nlags = 4,       
+                       draws = 200,      
+                       subdraws = 200,   
+                       nkeep = 1000,     
+                       KMIN = 2,         
+                       KMAX = 6,         
+                       constrained = constr, 
+                       constant = FALSE, 
+                       steps = 60)     
+```
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+irfs4 <- model4$IRFS
+
+irfplot(irfdraws=irfs4,        
+        type="median",         
+        labels=v2, 
+        save=FALSE, 
+        bands=c(0.16, 0.84),   
+        grid=TRUE,
+        bw=FALSE)
+```
+
+### Interpretação Gráfica
+
+Ao adicionarmos a nova restrição, resolvemos o problema da ambiguidade do PIB.
+
+## Penalidade de Uhlig
+
+Uma das críticas ao método do Uhlig é que temos vários candidatos e, nenhum deles é mais ou menos plausível.
+Ademais, excluímos candidatos que violem a restrição de sinal em, pelo menos, um termo.
+
+Dessa forma, o método de penalidade, ao invés de excluir os candidatos vai dar pesos de acordo com a distância deles da restrição de sinal, ou seja, ele vai ponderar o quão longe estamos da restrição de sinal.
+Logo, consiste em um método melhor de filtragem das IRFs
+
+```{r echo=FALSE, warning=FALSE,echo=FALSE, message=FALSE}
+
+#Método de Penalidade
+
+#Construindo o vetor de restrição:
+constr <- c(+4, #FFD possui um efeito positivo em FFD
+            -3, #FFD possui um efeito negativo em Commodity
+            -2, #FFD possui um efeito negativo em Deflator
+            -5, #FFD possui um efeito negativo em NonReserves
+            -6 #FFD possui um efeito negativo em Consumption
+            )   #PIB não possui restrição
+
+model5 <- uhlig.penalty(Y=data1,          
+                       nlags = 4,       
+                       draws = 2000,      
+                       subdraws = 1000,   
+                       nkeep = 1000,     
+                       KMIN = 1,         
+                       KMAX = 6,         
+                       constrained = constr, 
+                       constant = FALSE, 
+                       steps = 60,
+                       penalty = 100,
+                       crit = 0.001)  
+```
+
+```{r, fig.height=7, fig.align='center', eval=TRUE}
+irfs5 <- model5$IRFS
+
+irfplot(irfdraws=irfs5,        
+        type="median",         
+        labels=vl, 
+        save=FALSE, 
+        bands=c(0.16, 0.84),   
+        grid=TRUE,
+        bw=FALSE)
+```
+
+## Método de Fry and Pagan's
+
+Críticas aos modelos anteriores:
+
+-   Primordialmente, o método de computar a IRF mediana pode ser falsa, isto é, podemos estar olhando para uma IRF que não existe.
+
+-   Segundo, essa mediana está pegando IRFs de modelos distintos.
+
+    Fry e Pegan, então vão calcular a mediana, assim como Ohlig, mas ele também irá calcular a distância das IRFs para a mediana.
+
+```{r}
+model6 <- fp.target(Y = data1,
+                    irfdraws = irfs1,
+                    nlags = 4,
+                    constant = F,
+                    labels = vl,
+                    target = T,
+                    type = "median",
+                    bands = c(0.16,0.84),
+                    save = F,
+                    grid = T,
+                    bw = F,
+                    legend = T,
+                    maxit = 1000)
+```
+
+Ele vai escolher o vetor que tem IRFs que possuem a menor distância da mediana das IRFs, porém com o mesmo vetor, ou seja, a mesma matriz que gerou essas IRFs.
+Se esse modelo for verdadeiro, as IRFs serão consistentes entre si.

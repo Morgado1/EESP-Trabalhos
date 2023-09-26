@@ -1,0 +1,202 @@
+---
+title: "Exercício Aplicado 6"
+author: "Rodrigo Morgado"
+date: "`r format(Sys.time(), '%d, %B, %Y')`"
+output: 
+  bookdown::html_document2:
+    theme: default
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: hide
+    self_contained: yes
+    mode: selfcontained
+  toc-title: TABLE OF CONTENTS
+  pdf_document: default
+---
+
+## Loading Packages
+
+```{r, warning=FALSE, message=FALSE}
+#Limpar o wokrspace
+rm(list = ls())
+graphics.off()
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+load.lib <- c("did","tidyverse","data.table","fixest","vtable")
+### Instaling and loading packages
+install.lib <- load.lib[!load.lib %in% installed.packages()]
+for(lib in install.lib) install.packages(lib,dependencies=TRUE)
+sapply(load.lib, require, character=TRUE)
+```
+# Questão 1
+
+## Estimação do DiD em dados aleatórios
+
+Deve-se criar uma base de dados com o total de 32.000 itens, já que serão 8.000 indivíduos distribuídos em 4 períodos do tempo, para depois preenchê-la de acordo com as informações sorteadas aleatoriamente. A priori, são definidos os períodos e os indivíduos na base de dados, na qual aqueles variam de 1 a 4 oito mil vezes e os indivíduos repetem cada valor de 1 a 8.000 quatro vezes.
+
+```{r}
+# Seed para replicação
+set.seed(3)
+
+df = tibble("i" = rep(1:8000, each = 4),
+            "t" = rep(1:4, 8000))
+```
+
+Posteriormente, é definido quando serão tratados. Para isso, primeiramente selecionamos 4.000 indivíduos que nunca serão tratados e assumimos, sem perda de generalidade, que os primeiros 4.000 indivíduos serão tratados, enquanto os últimos 8.000 nunca serão.
+
+Desse modo, é possível estabelecer o tempo em que cada indivíduo será tratado e, depois disso, unir com o data frame original por meio de um left join. 
+
+```{r}
+# Começo do tratamento (g)
+df = tibble("i" = 1:8000) %>%
+  mutate("g" = ifelse(i <= 4000, sample(1:4, 4000, replace = T), 0)) %>%
+  left_join(., df)
+```
+
+A partir disso, são sorteados os valores de $X$ para cada um dos indivíduos, mantendo ele constante ao longo do tempo para cada id. Assim, é possível unir esses valores com a base original por meio de um right join e sortear os valores dos erros, os quais variam conforme o número de indivíduos e de períodos. Por fim, é fácil calcular o $Y$ predito por meio da seguinte fórmula:
+
+$$  Y_{it}(0) = t + \eta_i + X'_i t + v_{it}  $$
+
+$$  Y_{it}(g) = t + \eta_i + X'_i t + 1[t \ge g](t - g + 1) + u_{it}  $$
+
+```{r}
+# Resultados potenciais
+df = filter(df, t == 1) %>%
+  rowwise() %>%
+  mutate(eta = rnorm(1, g, 1),
+         X = ifelse(g == 0, rnorm(1, 1, 1), rnorm(1, 0, 1))) %>%
+  select(i, eta, X) %>%
+  right_join(., df, by = "i") %>%
+  rowwise() %>%
+  mutate(v = rnorm(1, 0, 1),
+         u = rnorm(1, 0, 1)) %>%
+  mutate(Y = ifelse(g == 0,
+                    t + eta + X*t + v, #never treated
+                    t + eta + ifelse(t >= g, t - g + 1, 0) + X*t + u)) #treated
+
+head(df)
+```
+
+Agora, falta estimar o valor do ATT com base em cada _g_ e cada _t_ e calcular seu intervalo de confiança. Como já discutido na questão, o ATT é $ATT(g,t) = t-g+1$ e, por isso, ele é sempre positivo. Entretanto, quando calculamos esse valor para o diff-in-diff clássico, temos um valor negativo.
+
+```{r}
+df <- df %>% mutate(treated = ifelse(g != 0, 1, 0),
+                    post = ifelse(g != 0 & t >= g, 1, 0)) #add a treated and post indicator
+
+reg_dd <- feols(Y ~ post:treated | i + t, data = filter(df, g != 1), se = "hetero")
+
+summary(reg_dd)
+```
+
+Diante disso, o estimador clássico de DiD não mostra o efeito real, então aplicados o estimador na sua forma escalonada, utilizando o método de Callaway e Sant'Anna visto no paper (questão b), de forma a calcular o efeito em cada um dos grupos e em cada um dos períodos.
+
+```{r}
+att = att_gt(yname = "Y", 
+             tname = "t", 
+             idname = "i", 
+             gname = "g", 
+             xformla = ~ X, 
+             data = df)
+att
+```
+```{r}
+ggdid(att)
+```
+Como é possível observar, o grupo 2 é tratado logo no segundo período, o grupo 3 é tratado no terceiro período e o grupo 4 é tratado apenas no quarto período. Tal análise foi obtida pelos testes de hipóteses feitos sobre o efeito da estimativa.
+
+Com isso, é possível também agregar o ATT em diferentes formas. Primeiramente, utilizamos o efeito visto em todos os períodos e todos os grupos (questão c), ponderado pelo tamanho relativo de cada grupo:
+
+$$ ATT = \sum_g \sum_t \omega_{gt} ATT(g,t)  $$
+```{r}
+agg.simple <- aggte(att, type = "simple")
+
+agg.simple
+```
+Além disso, também é possível agora estimar separadamente o efeito de não estar no tratamento, ou seja, o efeito de ser exposto apenas a um período de tratamento, do efeito de ser exposto a dois períodos, até l períodos (questão d).
+
+
+$$ ATT_l = \sum_g \omega_g ATT(g, g+l)  $$
+
+```{r}
+agg.es <- aggte(att, type = "dynamic")
+agg.es
+```
+
+```{r}
+ggdid(agg.es)
+```
+Como é possível perceber, só há efeito após ter entrado em contato com o tratamento, dado que o efeito nos períodos anteriores não era significativo, indicando que a existência do tratamento afetou o efeito observado.
+
+Ainda, é possível, também, calcular o efeito de cada grupo, tirando as médias ao longo do tempo (questão e):
+
+$$  ATT_g = \sum_t \omega_t ATT(g,t) $$
+
+```{r}
+agg.gs <- aggte(att, type = "group")
+agg.gs
+```
+```{r}
+ggdid(agg.gs)
+```
+
+Nota-se que, o grupo 2 teve o maior efeito, uma vez que foi o primeiro a ter contato com o tratamento. Ademais, vale ressaltar que o efeito de todos ser significativo.
+
+Por fim, também é possível calcular o efeito de cada um dos períodos e não mais em relação ao tempo exposto ao tratamento (questão f):
+
+$$ ATT_t = \sum_g \omega_g ATT(g,t)  $$
+```{r}
+agg.ct <- aggte(att, type = "calendar")
+agg.ct
+```
+```{r}
+ggdid(agg.ct)
+```
+Como é possível perceber, o último período foi o que mais teve impacto sobre os grupos, visto que alguns já haviam tido contato há algum tempo, além de o efeito sobre todos ser significativo.
+
+# Questão 2
+
+## Aplicação em dados de desemprego
+
+Importando a base de dados:
+```{r}
+mpdta = force(mpdta)
+head(mpdta)
+```
+
+```{r}
+mpdta$g = ifelse(mpdta$first.treat == 2004, 1,
+       ifelse(mpdta$first.treat == 2006, 3,
+              ifelse(mpdta$first.treat == 2007, 4, 0)))
+```
+Uma tabela de estatísticas descritivas mostra:
+```{r}
+summary(mpdta[c(4,5,7)])
+```
+
+```{r}
+att = att_gt(yname = "lemp", tname = "year", idname = "countyreal",
+             gname = "first.treat", data = mpdta)
+att
+```
+Ainda, de modo visual:
+
+```{r}
+ggdid(att)
+```
+
+Com isso, é possível notar que o único efeito significativo do aumento do salário mínimo na diminuição do nível de emprego é no condado que instituiu a política em 2004 e apenas nos anos de 2006 e 2007. Por isso, pode-se entender que o aumento do salário mínimo não impactou o emprego, o que é algo positivo.
+
+
+Agora, traçando o efeito médio do tratamento para cada duração de exposição do tratamento, temos que:
+```{r}
+agg.es <- aggte(att, type = "dynamic")
+agg.es
+```
+```{r}
+ggdid(agg.es)
+```
+
+Diante disso, ressalta-se que a política de salário mínimo teve sim efeito sobre o nível de emprego quando consideramos todos os condados juntos para os períodos de 1, 2 e 3 anos após a instituição da política.

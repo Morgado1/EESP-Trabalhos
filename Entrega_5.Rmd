@@ -1,0 +1,210 @@
+---
+title: "Exercício Aplicado 5"
+author: "Rodrigo Morgado"
+output:
+  word_document: default
+date: "`r format(Sys.time(), '%d, %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+# Questão 1
+
+**Explique, de forma resumido, a questão investigada por Bleemer & Mehta (2022). Qual o principal parâmetro de interesse? Por que essa questão é relevante para as Ciências Econômicas ou para o formulador de política pública?**
+
+Bleemer e Mehta utilizam o método de regressão descotínua, RDD, com erro
+padrão cluesterizado por GPA, grade point average, sendo esta a
+principal estratégia, porém não a única. Vale destacar que a adoção do
+RDD como estratégia de estimação objetiva remover o viés oriundo dos
+diferentes cursos, tendo em vista que as diferentes escolas adotam
+critérios de selação distintos e, cada aluno escolhe qual curso fará e
+quando iniciará.
+
+Em vista disso, é investigado, como principal parâmetro de interesse no
+artigo, o retorno salarial no início da carreira de estudar economia em
+relação aos cursos que seriam a segunda escolha principal de quem
+aplicou para economia na Universidade da California em Santa Cruz
+(UCSC). Bleemer e Mehta demonstram que o retorno salarial para a
+formação em economia é muito alto se comparado à educação nas
+disciplinas de ciências sociais de segunda escolha dos alunos que
+escolheriam economia, causando um aumento de 46% nos rendimentos das
+pessoas com vinte e poucos anos, apesar de nenhuma mudança no
+investimento educacional ou na obtenção de diplomas. Outrossim, é
+demonstrado, também, que cerca de metade do efeito observado pode ser
+atribuído à especialização dos estudantes de economia em determinadas
+indústrias de altos salários, refletindo em parte as mudanças nas
+preferências relatadas dos alunos quanto às profissões. O acesso ao
+curso de economia altera as preferências dos alunos para carreiras de
+negócios/finanças e, cerca de metade do retorno salarial é explicado por
+formados em economia que trabalham em setores com salários mais altos.
+
+Essas descobertas implicam que as escolhas de curso dos alunos podem ter
+implicações financeiras aproximadamente tão grandes quanto sua decisão
+de se matricular na faculdade (conforme outros estudos), destacando a
+centralidade da heterogeneidade nos retornos privados do ensino
+superior. Elas também apontam para a escolha da faculdade dos alunos
+como um ponto chave de decisão no qual os formuladores de políticas
+podem intervir para impactar substancialmente os resultados de longo
+prazo dos jovens no mercado de trabalho. Por fim, essas descobertas
+iluminam a relação entre retornos específicos de cursos e composição
+industrial, sugerindo um papel importante para a formação de
+preferências de carreira durante o curso e aquisição de capital humano
+específico a determinadas indústrias na educação superior. Em um
+contexto semelhante, Bleemer e Mehta (2021) mostram que as principais
+restrições baseadas no GPA moldam regressivamente as principais escolhas
+dos alunos. Este, por sua vez acaba por diminuir o acesso dos alunos
+desfavorecidos aos cursos de alta demanda das universidades, sendo,
+portanto, de extrema relevância social e para políticas públicas.
+
+Além disso, a estreita correspondência entre as estimativas
+observacionais e causais de retornos específicos de cursos também sugere
+o potencial de ganhos pecuniários privados resultantes de fornecer aos
+alunos informações localmente relevantes sobre os salários médios por
+curso, o que demonstrou aumentar a matrícula dos alunos em cursos com
+altos salários. As políticas que incentivam a escolha do curso de
+economia são particularmente propensas a fornecer aos alunos retornos
+pecuniários substanciais, como demostrado por Porter e Serra (2020). As
+descobertas do artigo, no entanto, implicam que políticas universitárias
+difundidas, mas pouco estudadas, que moldam a escolha (e posterior
+entrada) de curso do aluno, tais como: restrições de GPA, mensalidades
+variáveis e inflação de notas, têm importantes ramificações de
+eficiência e mobilidade social a longo prazo.
+
+Dessa forma, vale ressaltar que o artigo estima o efeito médio local do
+tratamento com um fuzzy RDD, ou seja, é identificado o efeito do
+tratamento sobre os policy compliers cujo EGPA está próximo ao limiar: o
+subconjunto dos estudantes próximos ao limiar que se formam em economia
+se estão acima do limiar do EGPA para entrada em economia mas não se
+formam se estão abaixo do limiar. Os autores constatam que as
+características dos policy compliers acima do EGPA (estimadas conforme
+Abadie (2002)) são semelhantes às características médias do estudante de
+economia da UCSC, o que sugere que o efeito médio local do tratamento
+estimado pode ser similar ao efeito médio do tratamento de se formar em
+economia na UCSC.
+
+# Questão 2
+
+**Descreva a base de dados utilizada pelos autores para estimar o parâmetro de interesse.**
+
+O banco de dados estudantil utilizado no estudo (University of
+California ClioMetric History Project (UC-CHP) 2020) foi coletado do
+UCSC Office of the Registrar como parte do UC ClioMetric History
+Project. A amostra abrange todos os alunos ingressantes, calouros, que
+se matricularam pela primeira vez na UCSC entre 1999 e 2014. Para cada
+aluno, há dados de gênero, etnia, ano de coorte, endereço residencial
+pré-matrícula, status de residência na Califórnia, ensino médio e nota
+no SAT, além de matrículas nos cursos da UCSC e notas na universidade. A
+running variable do RDD é calculada pela média dos GPAs, consiste em um
+tipo de nota, dos alunos em Economia 1 e 2, usando suas notas iniciais
+caso refaçam qualquer um dos cursos.
+
+Esses registros estudantis estão vinculados por nome e data de
+nascimento ao banco de dados NSC StudentTracker, o qual contém registros
+de matrículas de graduação e pós-graduação e registros de obtenção de
+diploma para quase todas as faculdades e universidades americanas, e
+estão ligados pelo social security number a registros de emprego do
+California Employment Development Department, o qual inclui salários
+anuais e o código da indústria em que cada pessoa na base trabalha. Como
+proxy da renda familiar, os pesquisadores utilizam a renda bruta média
+ajustada no zip code (CEP) de residência do aluno no primeiro ano de
+matrícula. Outrossim, os alunos da UCSC também estão vinculados às
+respostas da pesquisa bianual UC Undergradute Experience Survey,
+realizada online na primavera dos anos pares. Entre as muitas perguntas
+da pesquisa, estão as respostas sobre o número de horas por semana
+gastas estudando e carreiras pretendidas dos alunos. Quanto à
+categorização dos cursos, os cursos diferentes de economia foram
+categorizados em quatro grupos: humanidades, ciências sociais, ciências
+naturais e engenharia.
+
+Por fim, vale ressaltar que em relação à amostra completa de 15.400
+alunos da UCSC, os 3.053 alunos que concluíram Economia 1 e 2 são mais
+propensos a sererem do sexo masculino e asiáticos e vêm de bairros de
+renda ligeiramente mais alta. Desses alunos, os 55% que realmente entram
+no curso de economia são 41% do sexo feminino (em comparação com 56% na
+UCSC) e 44% asiáticos (em comparação com 27%) e têm pontuações médias
+semelhantes no SAT em relação ao aluno médio da UCSC.
+
+# Questão 3
+
+**O estimador de OLS seria enviesado no contexto do estudo realizado por Bleemer & Mehta(2022)? Justifique sua resposta.**
+
+O estimador de OLS seria enviesado no contexto desse estudo. Isso,
+porque a distribuição dos alunos nos cursos é não aleatória, tendo em
+vista que a maioria dos alunos auto-seleciona seu curso superior, além
+de que muitas universidades e departamentos usam admissões e requisitos
+de notas para restringir a entrada em determinados cursos. Dessa forma,
+as diferenças salariais observadas entre os principais cursos podem
+refletir um viés de seleção. Por conseguinte, é possível afirmar que o
+OLS superestima os ganhos salariais verdadeiros dos formados em economia
+se aqueles que entram em economia teriam ganhado mais em cursos que não
+economia do que aqueles que não selecionaram economia, devido, por
+exemplo, a um treinamento quantitativo anterior mais forte ou
+preferências mais fortes por altos salários. Tal problema será resolvido
+por meio da regressão descontínua, mais espicificamente pela fuzzy RDD,
+no acesso a cursos de economia na UCSC.
+
+A maioria dos graduandos em economia pouco acima do limiar teria obtido
+diplomas em áreas de baixa remuneração, como psicologia e sociologia, e
+é mostrado, no artigo, que diferenças nos salários médios estimados por
+OLS por curso (com ou sem controles) ou salários médios por curso
+(estimados no nível de universidade, estado ou país) subestimam
+ligeiramente o efeito médio local estimado do tratamento. Usando
+estimativas de OLS ou salários médios, a diferença entre os salários
+médios dos graduandos em economia e o salário médio ponderado entre os
+graduandos contrafactuais (o que os que cursariam por economia
+escolheriam como segunda escolha) subestima o retorno causalmente
+estimado para se formar em economia em, no máximo, 21%. Isso posto,
+sugere que a magnitude líquida do viés de seleção e da heterogeneidade
+do efeito do tratamento é pequena neste contexto, mas existe um viés.
+
+Mais detalhadamente, o artigo decompõe (em correção contrafactual do
+curso, heterogeneidade do efeito do tratamento e viés de seleção) a
+distinção entre a diferença observacional nos salários médios por curso
+na população e o efeito estimado do tratamento de se formar em economia
+na UCSC. A correção contrafactual do curso é positiva sempre que os
+cursos selecionados pelos policy compliers da UCSC abaixo do limiar são
+sistematicamente mais bem remunerados do que aqueles selecionados por
+não-economistas na população. O termo de heterogeneidade do efeito do
+tratamento é positivo sempre que os formados em economia na população
+têm efeitos latentes de tratamento maiores do que os dos policy
+compliers perto do limiar. Enfim, o viés de seleção é positivo quando os
+formados em economia na população ganhariam salários mais altos em
+cursos que não economia do que os formados em cursos que não economia.
+
+# Questão 4
+
+**Por que a estratégia de RDD parece adequada para responder à pergunta investigada por Bleemer & Mehta (2022)?**
+
+Para o estudo, utiliza-se o fato de que o departamento de economia da UCSC impôs uma política de
+restrição de admissão no curso conforme a média de notas (GPA) em 2008: alunos com um GPA abaixo de 2,8 em Economia 1 e 2 eram geralmente impedidos de entrar no curso de economia. Observa-se que os alunos pouco acima do baseline do GPA foram 36 p.p. mais propensos a entrar no curso de economia
+do que aqueles que não catingiram o mínimo necessário por muito pouco. A maioria desses alunos que entraram em economia teriam obtido diplomas em outras ciências sociais. Estudantes um pouco acima dos 2,8 que se formaram em economia foram surpreendentemente representativos dos estudantes de economia da UCSC em observáveis; por exemplo, sua pontuação média no SAT estava no 41º percentil de graduandos em economia.
+
+Historicamente, a restrição conforme o GPA de 2003 do Departamento de Economia da UCSC foi a primeira política da universidade a limitar o acesso dos alunos matriculados a um curso específico. A restrição foi registrada pela primeira vez no catálogo de cursos da UCSC de 2003, que afirmava que os alunos com GPA em Economia 1 e 2 (EGPA) abaixo de 2,8 só poderiam declarar o curso “a critério do departamento”. Caso os alunos retomassem um dos cursos, apenas a nota inicial era utilizada para o cálculo do EGPA. Essa política quase não mudou de jure nos dez anos seguintes, embora o catálogo de cursos de 2012 seja o primeiro a observar que, para alunos com EGPAs abaixo de 2,8, “a entrada raramente é concedida”. A partir de 2013, as notas de cálculo foram adicionadas ao cálculo da EGPA. No entanto, a “discrição” do departamento deixou espaço substancial para diferenças de fato ano após ano no acesso de alunos abaixo de 2,8 ao curso. A diferença na probabilidade de se formar em economia acima e abaixo do baseline do EGPA permaneceu pequena (abaixo de 15 pontos percentuais) até a corte de entrada de 2008 e depois variou de 25 a 60 pontos percentuais até 2012. Consequentemente, o estudo se concentra nesses últimos cinco cortes disponíveis de alunos calouros da UCSC.
+
+A partir disso, é identificada, no artigo, a relação entre a entrada em economia (tratamento) e os resultados de interesse, principalmente o efeito nos retornos salariais nos primeiros anos após a faculdade, explorando uma descontinuidade discreta de grau difuso (fuzzy RDD) no acesso à economia conforme o EGPA. Demonstra-se que estudantes acima do limiar eram cerca de 36 pontos percentuais mais propensos a entrar no curso de economia. Mesmo assim, alguns alunos abaixo do limiar foram capazes de declarar a especialização, “a critério do departamento” e, cerca de 20% dos alunos acima do limiar optaram por não declarar a especialização, por isso temos um fuzzy RDD, não um sharp RDD.
+
+Dessa forma, a estratégia de (fuzzy) RDD parece adequada haja vista que temos uma running variable (EGPA) com um cutoff discreto (2,8) conforme o qual muda a probabilidade de receber o tratamento (fazer o curso de economia). Através disso, utilizamos a posição do aluno no EGPA (abaixo ou acima do cutoff) como uma IV para o tratamento de fato (fazer o curso de economia), obtendo os efeitos do tratamento sobre as variáveis de resultado, principalmente os retornos salariais após a faculdade. Isso, por sua vez consiste em um cenário típico de um fuzzy RDD, o qual contorna os problemas de viés de seleção ao utilizar alunos próximos do cutoff para estimar o efeito do tratamento, supondo que alunos próximos do cutoff são semelhantes entre si em outras características.
+
+# Questão 5
+
+**Quais testes de placebo e robustez os autores utilizam para checar a validade dos resultados encontrados?**
+
+É mostrado que características detalhadas dos alunos são suaves ao longo do limiar do EGPA e que as
+distribuições de notas nos cursos de economia permaneceram inalteradas no período. Não há evidências
+de alunos se agrupando acima do limite, como seria de se esperar caso ultrapassar o limite fosse de alguma forma manipulado. Ademais, mostram que os salários eram suaves ao longo do limite do EGPA
+antes da implementação da política, mas ligeiramente descontínuos durante o período intersticial em que havia uma política de restrição à entrada no curso menos vinculativa, gerando estimativas de variáveis instrumentais semelhantes, porém mais ruidosas, à especificação principal. Outrossim, enquanto a principal estratégia empírica estima modelos lineares de RD com erros padrão agrupados por GPA, as estimativas são confirmadas utilizando uma série de outras especificações, incluindo estimativas “honest RD” seguindo Kolesár e Rothe (2018).
+
+São  testadas várias implicações da suposição de suavidade ao longo do limiar (para analisar o efeito do curso de economia sobre as variáveis de resultado, outras variáveis explicativas devem ser suaves, ou sem "pulos", ao longo do limiar, ou os efeitos seriam confundidos). Primeiramente, é descoberto que a distribuição de notas empírica não apresenta um agrupamento no limite de 2,8 EGPA ou próximo a ele e que a distribuição de 2008-2012 é muito semelhante à distribuição de notas de 2003-2007, anos em que o limite de EGPA foi aplicado sem muita força. Esse padrão, por sua vez, implica que os alunos não manipularam suas notas do curso para atingir o limite de 2,8 no EGPA, uma hipótese importante para a identificação pelo RDD. 
+Em segundo lugar, é descoberto que características socioeconômicas detalhadas dos alunos são suaves no limiar do GPA, assim como é suave um resumo unidimensional das características dos alunos gerado pela previsão dos salários médios de 2017-2018 de cada aluno por variáveis socioeconômicas observáveis. Ainda, as respostas da pesquisa de intenção de carreira no primeiro ano, antes de cursar economia,são suaves em todo o limiar.  Isso indica que é improvável que os efeitos estimados além do limite sejam motivados por qualquer outra coisa além da qualificação para o curso de economia, outra hipótese importante para o RDD.
+Finalmente, como um teste placebo, é mostrado que a seleção para o curso de economia e os salários no início da carreira são suaves ao longo do limite de 2,8 EGPA em 2000-2002, antes da introdução da restrição conforme o EGPA, indicando que o cutoff de 2,8 EGPA introduzido posteriormente foi o único responsável pelos "pulos"observados depois na seleção para o curso de economia e nos salários no início da carreira consoante o cutoff. Como já dito acima, é explorado também o pequeno aumento na probabilidade de entrada em economia ao longo do cutoff no EGPA nos anos de 2003-2007 (menos vinculativo) replicar (mais ruidosamente) os resultados de variável instrumental do sa´lário na especificação principal. Os resultados obtidos são semelhantes.
+
+Para além disso, a especificação de baseline (padrão) do artigo para estimar o RDD é linear na running variable (EGPA) em ambos os lados do limite e agrupa os erros padrão pelos 20 EGPAs observados acima de 1,8 (banda do RDD utilizada no baseline). Também é verificado se os resultados são robustos ao uso de várias especificações alternativas. Isso inclui (i) permitir termos quadráticos da running variable na regressão, (ii) adicionar controles demográficos e efeitos fixos do ensino médio, (iii) estreitar a banda para 0,5 pontos EGPA em cada lado do limite e (iv) estimar coeficientes "local linear RD"com largura de banda ideal e kernel triangular seguindo Kolesár e Rothe (2018). Os resultados principais são semelhantes para todas essas especificações alternativas.
+
+Vale ressaltar que, apesar de não ser propriamente um teste de placebo ou robustez, a UCSC é relativamente representativa da universidade americana média. Dentre as universidades norte-americanas que estão a quatro anos no banco de dados do Integrated Postsecondary Education Data System de 2010 (ponderado por matrícula), a UCSC ocupa o quadragésimo segundo percentil na taxa de admissões, no quinquagésimo nono percentil nas pontuações médias dos alunos no SAT, e no 53º percentil na proporção aluno-professor, implicando que cada docente lecionava em média 91 alunos por trimestre, entre as cargas mais altas da universidade.
+
+# Questão 6
+
+**Além dos testes de placebo e robustez implementados pelos autores, quais testes você sugeriria para avaliar a validade do RDD nesse contexto?**
+
+A fim de avaliar a validade do RDD, é possível realizar um teste de placebo utilizando falsos cutoffs, garantindo que não são detectados efeitos nas variáveis de resultado nesses falsos cutoffs. Outrossim, poderiam testar mais bandas para verificar se os resultados não são alterados.
